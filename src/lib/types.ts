@@ -12,6 +12,9 @@ export interface Client {
   rateLabel: string;
   joinedDate: string;
   avatar: string;
+  image?: string;
+  logo?: string;
+  brandColor?: string;
 }
 
 export type TaskStatus = "To Do" | "In Progress" | "Done";
@@ -28,32 +31,6 @@ export interface Task {
   tags: TaskTag[];
 }
 
-export type PipelineStage =
-  | "Nurturing"
-  | "New Lead"
-  | "Offer Presented"
-  | "Engaged Prospect"
-  | "Qualified"
-  | "Call Booked"
-  | "Deal Negotiation"
-  | "Closed Won"
-  | "Closed Lost";
-
-export interface Lead {
-  id: string;
-  name: string;
-  company: string;
-  email: string;
-  phone: string;
-  stage: PipelineStage;
-  value: number;
-  source: string;
-  lastContact: string;
-  notes: string;
-}
-
-export type PaymentStatus = "Paid" | "Pending" | "Overdue";
-
 export interface DailyLog {
   id: string;
   date: string;
@@ -66,4 +43,32 @@ export interface DailyLog {
   nextDayPlan: string[];
 }
 
-export type ViewType = "dashboard" | "daily-ops" | "tasks" | "crm" | "invoices" | "documents" | "files";
+export type ViewType = "dashboard" | "daily-ops" | "tasks" | "files";
+
+export type FileCategory = "Brand Kit" | "Images" | "Documents" | "Videos" | "Other";
+export type FileItemType = "image" | "pdf" | "video" | "link" | "other";
+
+export interface FileItem {
+  id: string;
+  name: string;
+  category: FileCategory;
+  type: FileItemType;
+  url: string;
+  thumbnail?: string;
+  size: string;
+  uploadedAt: string;
+  notes: string;
+}
+
+export type MilestoneStatus = "Not Started" | "In Progress" | "Completed";
+
+export interface Milestone {
+  id: string;
+  number: number;
+  title: string;
+  targetDate: string;
+  intent: string;
+  output: string;
+  status: MilestoneStatus;
+  steps: { id: string; label: string; done: boolean }[];
+}

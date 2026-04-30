@@ -4,9 +4,6 @@ import {
   LayoutDashboard,
   CalendarClock,
   ListChecks,
-  Users,
-  Receipt,
-  FileText,
   FolderOpen,
   ChevronLeft,
   ChevronRight,
@@ -27,9 +24,6 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "Overview", icon: LayoutDashboard },
   { id: "daily-ops", label: "Daily Ops", icon: CalendarClock },
   { id: "tasks", label: "Tasks", icon: ListChecks },
-  { id: "crm", label: "CRM & Pipeline", icon: Users },
-  { id: "invoices", label: "Invoices", icon: Receipt },
-  { id: "documents", label: "Documents", icon: FileText },
   { id: "files", label: "Files & Assets", icon: FolderOpen },
 ];
 
@@ -42,9 +36,15 @@ export default function Sidebar({ activeView, onViewChange, collapsed, onToggle,
           {!collapsed && <span>All Clients</span>}
         </button>
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-purple-soft flex items-center justify-center shrink-0">
-            <span className="text-xs font-bold text-purple">{client.avatar}</span>
-          </div>
+          {client.image ? (
+            <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 ring-1 ring-border-subtle">
+              <img src={client.image} alt={client.name} className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-purple-soft flex items-center justify-center shrink-0">
+              <span className="text-xs font-bold text-purple">{client.avatar}</span>
+            </div>
+          )}
           {!collapsed && (
             <div className="overflow-hidden">
               <p className="text-sm font-semibold text-text-primary truncate">{client.name}</p>

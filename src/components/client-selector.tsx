@@ -54,9 +54,15 @@ export default function ClientSelector({ onSelectClient }: ClientSelectorProps) 
               >
                 <div className="flex items-start gap-4">
                   {/* Avatar */}
-                  <div className="w-12 h-12 rounded-full bg-purple-soft flex items-center justify-center shrink-0">
-                    <span className="text-sm font-bold text-purple">{client.avatar}</span>
-                  </div>
+                  {client.image ? (
+                    <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 ring-1 ring-border-subtle">
+                      <img src={client.image} alt={client.name} className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-purple-soft flex items-center justify-center shrink-0">
+                      <span className="text-sm font-bold text-purple">{client.avatar}</span>
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-text-primary truncate">{client.name}</p>
                     <p className="text-xs text-text-muted truncate">{client.company}</p>

@@ -13,7 +13,7 @@ import {
   Pause,
   Square,
 } from "lucide-react";
-import { dailyLog } from "@/lib/mock-data";
+import { defaultDailyLog, dailyLogByClient } from "@/lib/mock-data";
 import type { Client } from "@/lib/types";
 
 interface Props { client: Client }
@@ -35,7 +35,7 @@ function formatMinutes(totalSeconds: number) {
 }
 
 export default function DailyOps({ client }: Props) {
-  const [log, setLog] = useState(dailyLog);
+  const [log, setLog] = useState(dailyLogByClient[client.id] ?? defaultDailyLog);
   const [newItem, setNewItem] = useState({ field: "", value: "" });
 
   // Timer state

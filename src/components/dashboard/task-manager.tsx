@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ListChecks, LayoutGrid, Calendar, GripVertical, Plus, X } from "lucide-react";
 import type { Task, TaskStatus, TaskPriority, TaskTag, Client } from "@/lib/types";
+import { defaultTasks, tasksByClient } from "@/lib/mock-data";
 
 interface Props { client: Client }
 
@@ -25,17 +26,6 @@ const tagColors: Record<TaskTag, string> = {
   Dev: "bg-green-soft text-green",
   Support: "bg-yellow-soft text-yellow",
 };
-
-const initialTasks: Task[] = [
-  { id: "t1", name: "Build landing page v2", assignedTo: "AJ", status: "In Progress", priority: "High", dueDate: "2026-04-18", tags: ["Funnel"] },
-  { id: "t2", name: "Set up email nurture sequence", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-04-20", tags: ["Automation"] },
-  { id: "t3", name: "Fix broken webhook", assignedTo: "AJ", status: "In Progress", priority: "Urgent", dueDate: "2026-04-17", tags: ["Automation"] },
-  { id: "t4", name: "Create opt-in funnel for ads", assignedTo: "AJ", status: "To Do", priority: "High", dueDate: "2026-04-19", tags: ["Funnel"] },
-  { id: "t5", name: "Set up appointment booking workflow", assignedTo: "AJ", status: "Done", priority: "High", dueDate: "2026-04-16", tags: ["Automation"] },
-  { id: "t6", name: "Build 2-step funnel for lead gen", assignedTo: "AJ", status: "Done", priority: "Medium", dueDate: "2026-04-15", tags: ["Funnel"] },
-  { id: "t7", name: "Deploy funnel to Vercel preview", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-04-21", tags: ["Funnel"] },
-  { id: "t8", name: "Write re-engagement SMS automation", assignedTo: "AJ", status: "In Progress", priority: "Medium", dueDate: "2026-04-18", tags: ["Automation"] },
-];
 
 function TaskCard({ task, onStatusChange }: { task: Task; onStatusChange: (id: string, status: TaskStatus) => void }) {
   return (
@@ -75,7 +65,7 @@ function TaskCard({ task, onStatusChange }: { task: Task; onStatusChange: (id: s
 }
 
 export default function TaskManager({ client }: Props) {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [tasks, setTasks] = useState<Task[]>(tasksByClient[client.id] ?? defaultTasks);
   const [viewMode, setViewMode] = useState<ViewMode>("board");
   const [filterTag, setFilterTag] = useState<TaskTag | "All">("All");
 

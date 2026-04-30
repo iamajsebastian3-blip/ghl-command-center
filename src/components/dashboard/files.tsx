@@ -19,24 +19,12 @@ import {
   ExternalLink,
   Link,
 } from "lucide-react";
-import type { Client } from "@/lib/types";
+import type { Client, FileItem, FileCategory } from "@/lib/types";
+import { filesByClient } from "@/lib/mock-data";
 
 interface Props { client: Client }
 
-type FileCategory = "Brand Kit" | "Images" | "Documents" | "Videos" | "Other";
 type ViewMode = "grid" | "list";
-
-interface FileItem {
-  id: string;
-  name: string;
-  category: FileCategory;
-  type: "image" | "pdf" | "video" | "link" | "other";
-  url: string;
-  thumbnail?: string;
-  size: string;
-  uploadedAt: string;
-  notes: string;
-}
 
 const categoryConfig: Record<FileCategory, { icon: React.ElementType; color: string; bg: string }> = {
   "Brand Kit": { icon: Palette, color: "text-purple", bg: "bg-purple-soft" },
@@ -48,7 +36,7 @@ const categoryConfig: Record<FileCategory, { icon: React.ElementType; color: str
 
 const allCategories: FileCategory[] = ["Brand Kit", "Images", "Documents", "Videos", "Other"];
 
-const initialFiles: FileItem[] = [
+const defaultFiles: FileItem[] = [
   { id: "f1", name: "Logo - Primary (Purple)", category: "Brand Kit", type: "image", url: "", thumbnail: "", size: "245 KB", uploadedAt: "2026-04-10", notes: "Main logo on dark bg" },
   { id: "f2", name: "Logo - White", category: "Brand Kit", type: "image", url: "", thumbnail: "", size: "180 KB", uploadedAt: "2026-04-10", notes: "For light backgrounds" },
   { id: "f3", name: "Brand Colors & Fonts", category: "Brand Kit", type: "pdf", url: "", size: "1.2 MB", uploadedAt: "2026-04-10", notes: "Purple #5E17EB, Yellow #FBBF24, Inter font" },
@@ -87,12 +75,20 @@ function FileCard({ file, onRemove, viewMode }: { file: FileItem; onRemove: (id:
     );
   }
 
+  const previewUrl = file.thumbnail || (file.type === "image" ? file.url : "");
+
   return (
     <div className="card p-4 group">
       {/* Thumbnail area */}
-      <div className={`w-full h-28 rounded-lg ${cfg.bg} flex items-center justify-center mb-3`}>
-        <TypeIcon className={`w-8 h-8 ${cfg.color} opacity-40`} />
-      </div>
+      {previewUrl ? (
+        <div className="w-full h-28 rounded-lg overflow-hidden mb-3 bg-bg-surface">
+          <img src={previewUrl} alt={file.name} className="w-full h-full object-cover" />
+        </div>
+      ) : (
+        <div className={`w-full h-28 rounded-lg ${cfg.bg} flex items-center justify-center mb-3`}>
+          <TypeIcon className={`w-8 h-8 ${cfg.color} opacity-40`} />
+        </div>
+      )}
       <div className="flex items-start justify-between">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-text-primary truncate">{file.name}</p>
@@ -112,7 +108,7 @@ function FileCard({ file, onRemove, viewMode }: { file: FileItem; onRemove: (id:
 }
 
 export default function Files({ client }: Props) {
-  const [files, setFiles] = useState<FileItem[]>(initialFiles);
+  const [files, setFiles] = useState<FileItem[]>(filesByClient[client.id] ?? defaultFiles);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<FileCategory | "All">("All");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");

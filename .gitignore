@@ -40,6 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# screenshots and test files
-*.png
-test_screenshot.py
+# dev screenshots and one-off scripts
+/preview_*.png
+/screenshot*.png
+/test_screenshot.py
+
+.vercel

@@ -6,9 +6,6 @@ import Sidebar from "@/components/sidebar";
 import CEODashboard from "@/components/dashboard/ceo-dashboard";
 import DailyOps from "@/components/dashboard/daily-ops";
 import TaskManager from "@/components/dashboard/task-manager";
-import CRMDashboard from "@/components/dashboard/crm-dashboard";
-import InvoiceTracker from "@/components/dashboard/invoice-tracker";
-import Documents from "@/components/dashboard/documents";
 import Files from "@/components/dashboard/files";
 import type { ViewType, Client } from "@/lib/types";
 
@@ -16,9 +13,6 @@ const viewComponents: Record<ViewType, React.ComponentType<{ client: Client }>> 
   dashboard: CEODashboard,
   "daily-ops": DailyOps,
   tasks: TaskManager,
-  crm: CRMDashboard,
-  invoices: InvoiceTracker,
-  documents: Documents,
   files: Files,
 };
 
