@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Clock,
   CheckCircle2,
   AlertCircle,
-  Plus,
   X,
   Flame,
   BookOpen,
   Play,
   Pause,
   Square,
+  History,
+  Trash2,
+  Calendar,
 } from "lucide-react";
 import { defaultDailyLog, dailyLogByClient } from "@/lib/mock-data";
 import type { Client } from "@/lib/types";
@@ -19,6 +21,18 @@ import type { Client } from "@/lib/types";
 interface Props { client: Client }
 
 type TimerState = "idle" | "running" | "paused" | "stopped";
+
+interface StoredSession {
+  id: string;
+  date: string;        // YYYY-MM-DD (local)
+  start: string;       // local 12-hour time
+  end: string;
+  startEpoch: number;
+  seconds: number;
+  note?: string;
+}
+
+const HISTORY_KEY = (clientId: string) => `time-sessions:${clientId}`;
 
 function formatTime(totalSeconds: number) {
   const hrs = Math.floor(totalSeconds / 3600);
@@ -34,6 +48,29 @@ function formatMinutes(totalSeconds: number) {
   return `${mins}m`;
 }
 
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function loadHistory(clientId: string): StoredSession[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(HISTORY_KEY(clientId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as StoredSession[];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(clientId: string, history: StoredSession[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(HISTORY_KEY(clientId), JSON.stringify(history));
+}
+
 export default function DailyOps({ client }: Props) {
   const [log, setLog] = useState(dailyLogByClient[client.id] ?? defaultDailyLog);
   const [newItem, setNewItem] = useState({ field: "", value: "" });
@@ -42,8 +79,17 @@ export default function DailyOps({ client }: Props) {
   const [timerState, setTimerState] = useState<TimerState>("idle");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [timeInStamp, setTimeInStamp] = useState<string>("");
-  const [sessions, setSessions] = useState<{ start: string; end: string; seconds: number }[]>([]);
+  const [startEpoch, setStartEpoch] = useState<number>(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Persistent history
+  const [history, setHistory] = useState<StoredSession[]>([]);
+  const [showAllHistory, setShowAllHistory] = useState(false);
+
+  // Hydrate history on client mount + when client changes.
+  useEffect(() => {
+    setHistory(loadHistory(client.id));
+  }, [client.id]);
 
   const stopInterval = useCallback(() => {
     if (intervalRef.current) {
@@ -55,8 +101,9 @@ export default function DailyOps({ client }: Props) {
   const startTimer = () => {
     if (timerState === "idle" || timerState === "stopped") {
       setElapsedSeconds(0);
-      setSessions([]);
-      setTimeInStamp(new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }));
+      const now = new Date();
+      setTimeInStamp(now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }));
+      setStartEpoch(now.getTime());
     }
     setTimerState("running");
     stopInterval();
@@ -73,20 +120,58 @@ export default function DailyOps({ client }: Props) {
   const endTimer = () => {
     stopInterval();
     const endStamp = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-    setSessions((prev) => [...prev, { start: timeInStamp, end: endStamp, seconds: elapsedSeconds }]);
+    const entry: StoredSession = {
+      id: `s-${Date.now()}`,
+      date: todayKey(),
+      start: timeInStamp,
+      end: endStamp,
+      startEpoch,
+      seconds: elapsedSeconds,
+    };
+    setHistory((prev) => {
+      const next = [entry, ...prev];
+      saveHistory(client.id, next);
+      return next;
+    });
     setTimerState("stopped");
-    setLog((prev) => ({
-      ...prev,
-      timeIn: timeInStamp,
-      timeOut: endStamp,
-    }));
+    setLog((prev) => ({ ...prev, timeIn: timeInStamp, timeOut: endStamp }));
+  };
+
+  const deleteSession = (id: string) => {
+    setHistory((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      saveHistory(client.id, next);
+      return next;
+    });
   };
 
   useEffect(() => {
     return () => stopInterval();
   }, [stopInterval]);
 
-  const totalSessionSeconds = sessions.reduce((sum, s) => sum + s.seconds, 0) + (timerState !== "stopped" ? elapsedSeconds : 0);
+  // Grouping: sessions by date (descending), with daily totals.
+  const grouped = useMemo(() => {
+    const sorted = [...history].sort((a, b) => b.startEpoch - a.startEpoch);
+    const map = new Map<string, { sessions: StoredSession[]; total: number }>();
+    for (const s of sorted) {
+      const existing = map.get(s.date) ?? { sessions: [], total: 0 };
+      existing.sessions.push(s);
+      existing.total += s.seconds;
+      map.set(s.date, existing);
+    }
+    return Array.from(map.entries()).map(([date, v]) => ({ date, ...v }));
+  }, [history]);
+
+  const todayTotal = (grouped.find((g) => g.date === todayKey())?.total ?? 0) + (timerState === "running" || timerState === "paused" ? elapsedSeconds : 0);
+
+  // Last 7 days total
+  const weekTotal = useMemo(() => {
+    const cutoff = Date.now() - 7 * 86400000;
+    return history.filter((s) => s.startEpoch >= cutoff).reduce((sum, s) => sum + s.seconds, 0)
+      + (timerState === "running" || timerState === "paused" ? elapsedSeconds : 0);
+  }, [history, elapsedSeconds, timerState]);
+
+  const visibleGroups = showAllHistory ? grouped : grouped.slice(0, 5);
 
   const addItem = (field: "tasksCompleted" | "pendingTasks" | "priorities" | "blockers" | "nextDayPlan") => {
     if (!newItem.value.trim() || newItem.field !== field) return;
@@ -122,9 +207,18 @@ export default function DailyOps({ client }: Props) {
 
       {/* Timer Section */}
       <div className="card p-5 animate-in opacity-0 animate-delay-1">
-        <h2 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
-          <Clock className="w-4 h-4 text-purple" /> Time Tracker
-        </h2>
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+            <Clock className="w-4 h-4 text-purple" /> Time Tracker
+          </h2>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="text-text-muted">Today</span>
+            <span className="font-semibold text-text-primary">{formatMinutes(todayTotal)}</span>
+            <span className="text-border-subtle">|</span>
+            <span className="text-text-muted">7 days</span>
+            <span className="font-semibold text-purple">{formatMinutes(weekTotal)}</span>
+          </div>
+        </div>
 
         <div className="flex items-center gap-6 flex-wrap">
           {/* Timer Display */}
@@ -136,7 +230,7 @@ export default function DailyOps({ client }: Props) {
               {timerState === "idle" && "Ready to start"}
               {timerState === "running" && "Running..."}
               {timerState === "paused" && "Paused"}
-              {timerState === "stopped" && `Total: ${formatMinutes(totalSessionSeconds)}`}
+              {timerState === "stopped" && `Saved: ${formatMinutes(elapsedSeconds)}`}
             </p>
           </div>
 
@@ -179,25 +273,60 @@ export default function DailyOps({ client }: Props) {
               <p className="text-[10px] text-text-muted uppercase tracking-wider">Time Out</p>
               <p className="text-sm font-semibold text-text-primary">{timerState === "stopped" ? log.timeOut : "—"}</p>
             </div>
-            <div>
-              <p className="text-[10px] text-text-muted uppercase tracking-wider">Total</p>
-              <p className="text-sm font-semibold text-green">{timerState === "stopped" ? formatMinutes(totalSessionSeconds) : "—"}</p>
-            </div>
           </div>
         </div>
+      </div>
 
-        {/* Session History */}
-        {sessions.length > 0 && (
-          <div className="mt-4 pt-3 border-t border-border-subtle">
-            <p className="text-xs text-text-muted mb-2">Sessions</p>
-            <div className="space-y-1">
-              {sessions.map((s, i) => (
-                <div key={i} className="flex items-center justify-between text-xs py-1">
-                  <span className="text-text-secondary">Session {i + 1}: {s.start} - {s.end}</span>
-                  <span className="text-text-primary font-medium">{formatMinutes(s.seconds)}</span>
+      {/* Session History */}
+      <div className="card p-5 animate-in opacity-0 animate-delay-2">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+            <History className="w-4 h-4 text-purple" /> Session History
+            <span className="text-xs text-text-muted font-normal">({history.length} {history.length === 1 ? "session" : "sessions"} logged)</span>
+          </h2>
+          {grouped.length > 5 && (
+            <button onClick={() => setShowAllHistory((v) => !v)} className="text-xs text-purple hover:text-purple-light cursor-pointer font-medium">
+              {showAllHistory ? "Show recent" : `Show all ${grouped.length} days`}
+            </button>
+          )}
+        </div>
+
+        {history.length === 0 ? (
+          <div className="text-center py-10">
+            <Clock className="w-8 h-8 text-text-muted mx-auto mb-2" />
+            <p className="text-sm text-text-muted">No sessions logged yet</p>
+            <p className="text-xs text-text-muted mt-1">Hit Start above to log your first session.</p>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {visibleGroups.map((group) => {
+              const dateLabel = new Date(group.date + "T00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+              const isToday = group.date === todayKey();
+              return (
+                <div key={group.date}>
+                  <div className="flex items-center justify-between pb-2 border-b border-border-subtle">
+                    <p className="text-xs font-semibold text-text-primary flex items-center gap-2">
+                      <Calendar className="w-3.5 h-3.5 text-text-muted" />
+                      {dateLabel}
+                      {isToday && <span className="badge bg-green-soft text-green">Today</span>}
+                    </p>
+                    <span className="text-xs font-semibold text-purple">{formatMinutes(group.total)}</span>
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    {group.sessions.map((s) => (
+                      <div key={s.id} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-bg-surface transition-colors group">
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple shrink-0" />
+                        <span className="text-sm text-text-secondary flex-1">{s.start} → {s.end}</span>
+                        <span className="text-sm font-medium text-text-primary">{formatMinutes(s.seconds)}</span>
+                        <button onClick={() => deleteSession(s.id)} className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-yellow transition-all cursor-pointer">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -205,7 +334,7 @@ export default function DailyOps({ client }: Props) {
       {/* Sections */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {sections.map((section, sIdx) => (
-          <div key={section.key} className={`card p-5 animate-in opacity-0 animate-delay-${sIdx + 2} ${section.key === "nextDayPlan" ? "lg:col-span-2" : ""}`}>
+          <div key={section.key} className={`card p-5 animate-in opacity-0 animate-delay-${Math.min(sIdx + 3, 6)} ${section.key === "nextDayPlan" ? "lg:col-span-2" : ""}`}>
             <div className="flex items-center gap-2 mb-4">
               <section.icon className={`w-4 h-4 ${section.color}`} />
               <h2 className="text-sm font-semibold text-text-primary">{section.label}</h2>

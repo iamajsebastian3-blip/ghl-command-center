@@ -17,19 +17,6 @@ export const clients: Client[] = [
     logo: "/clients/coach-circle-logo.png",
     brandColor: "#D4AF37",
   },
-  {
-    id: "josha",
-    name: "Josha Broach",
-    company: "—",
-    industry: "—",
-    status: "Onboarding",
-    engagement: "Part-time",
-    schedule: "Flexible",
-    rate: 8,
-    rateLabel: "$8/hr",
-    joinedDate: "2026-04-30",
-    avatar: "JB",
-  },
 ];
 
 export const defaultDailyLog: DailyLog = {
@@ -199,31 +186,22 @@ export const milestonesByClient: Record<string, Milestone[]> = {
   ],
 };
 
-export const defaultTasks: Task[] = [
-  { id: "t1", name: "Build landing page v2", assignedTo: "AJ", status: "In Progress", priority: "High", dueDate: "2026-04-18", tags: ["Funnel"] },
-  { id: "t2", name: "Set up email nurture sequence", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-04-20", tags: ["Automation"] },
-  { id: "t3", name: "Fix broken webhook", assignedTo: "AJ", status: "In Progress", priority: "Urgent", dueDate: "2026-04-17", tags: ["Automation"] },
-  { id: "t4", name: "Create opt-in funnel for ads", assignedTo: "AJ", status: "To Do", priority: "High", dueDate: "2026-04-19", tags: ["Funnel"] },
-  { id: "t5", name: "Set up appointment booking workflow", assignedTo: "AJ", status: "Done", priority: "High", dueDate: "2026-04-16", tags: ["Automation"] },
-  { id: "t6", name: "Build 2-step funnel for lead gen", assignedTo: "AJ", status: "Done", priority: "Medium", dueDate: "2026-04-15", tags: ["Funnel"] },
-  { id: "t7", name: "Deploy funnel to Vercel preview", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-04-21", tags: ["Funnel"] },
-  { id: "t8", name: "Write re-engagement SMS automation", assignedTo: "AJ", status: "In Progress", priority: "Medium", dueDate: "2026-04-18", tags: ["Automation"] },
-];
+export const defaultTasks: Task[] = [];
 
 export const tasksByClient: Record<string, Task[]> = {
   lish: [
-    { id: "lt1", name: "Add coach profiles section to landing page", assignedTo: "AJ", status: "In Progress", priority: "High", dueDate: "2026-04-20", tags: ["Funnel", "Design"] },
-    { id: "lt2", name: "Build inquiry / join form with GHL", assignedTo: "AJ", status: "To Do", priority: "High", dueDate: "2026-04-20", tags: ["Funnel", "Automation"] },
-    { id: "lt3", name: "Set up Coach Circle PH social pages", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-04-22", tags: ["Design"] },
-    { id: "lt4", name: "Prepare visual branding pack for launch", assignedTo: "AJ", status: "In Progress", priority: "High", dueDate: "2026-04-25", tags: ["Design"] },
-    { id: "lt5", name: "Reach out personally to 10 priority coaches", assignedTo: "Lish", status: "In Progress", priority: "Urgent", dueDate: "2026-04-26", tags: ["Support"] },
-    { id: "lt6", name: "Collect bios + headshots from founding coaches", assignedTo: "Lish", status: "To Do", priority: "High", dueDate: "2026-04-29", tags: ["Support"] },
-    { id: "lt7", name: "Draft teaser content + launch countdown", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-05-02", tags: ["Ads", "Design"] },
-    { id: "lt8", name: "Build email waitlist with welcome sequence", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-05-05", tags: ["Automation"] },
-    { id: "lt9", name: "Finalize launch event flow and run-of-show", assignedTo: "AJ", status: "To Do", priority: "High", dueDate: "2026-05-13", tags: ["Funnel", "Support"] },
-    { id: "lt10", name: "Brand message & one-liner finalized", assignedTo: "Lish", status: "Done", priority: "High", dueDate: "2026-04-12", tags: ["Design"] },
-    { id: "lt11", name: "Define Coach Circle PH offer + structure", assignedTo: "Lish", status: "Done", priority: "High", dueDate: "2026-04-12", tags: ["Support"] },
-    { id: "lt12", name: "Lock landing page hero copy", assignedTo: "AJ", status: "Done", priority: "Medium", dueDate: "2026-04-18", tags: ["Funnel"] },
+    { id: "lt1", name: "Add coach profiles section to landing page", assignedTo: "AJ", status: "In Progress", priority: "High", dueDate: "2026-04-20", tags: ["Web", "Brand"] },
+    { id: "lt2", name: "Build inquiry / join form", assignedTo: "AJ", status: "To Do", priority: "High", dueDate: "2026-04-20", tags: ["Web", "Ops"] },
+    { id: "lt3", name: "Set up Coach Circle PH social pages", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-04-22", tags: ["Brand"] },
+    { id: "lt4", name: "Prepare visual branding pack for launch", assignedTo: "AJ", status: "In Progress", priority: "High", dueDate: "2026-04-25", tags: ["Brand"] },
+    { id: "lt5", name: "Reach out personally to 10 priority coaches", assignedTo: "Lish", status: "In Progress", priority: "Urgent", dueDate: "2026-04-26", tags: ["Outreach"] },
+    { id: "lt6", name: "Collect bios + headshots from founding coaches", assignedTo: "Lish", status: "To Do", priority: "High", dueDate: "2026-04-29", tags: ["Outreach"] },
+    { id: "lt7", name: "Draft teaser content + launch countdown", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-05-02", tags: ["Content", "Brand"] },
+    { id: "lt8", name: "Build email waitlist with welcome sequence", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-05-05", tags: ["Ops"] },
+    { id: "lt9", name: "Finalize launch event flow and run-of-show", assignedTo: "AJ", status: "To Do", priority: "High", dueDate: "2026-05-13", tags: ["Ops", "Outreach"] },
+    { id: "lt10", name: "Brand message & one-liner finalized", assignedTo: "Lish", status: "Done", priority: "High", dueDate: "2026-04-12", tags: ["Brand"] },
+    { id: "lt11", name: "Define Coach Circle PH offer + structure", assignedTo: "Lish", status: "Done", priority: "High", dueDate: "2026-04-12", tags: ["Brand"] },
+    { id: "lt12", name: "Lock landing page hero copy", assignedTo: "AJ", status: "Done", priority: "Medium", dueDate: "2026-04-18", tags: ["Content"] },
   ],
 };
 
