@@ -91,6 +91,39 @@ create table if not exists public.time_sessions (
 create index if not exists time_sessions_client_id_idx on public.time_sessions(client_id);
 create index if not exists time_sessions_date_idx     on public.time_sessions(session_date);
 
+create table if not exists public.milestones (
+  id           uuid primary key default gen_random_uuid(),
+  client_id    uuid not null references public.clients(id) on delete cascade,
+  number       integer not null,
+  title        text not null,
+  target_date  date,
+  intent       text not null default '',
+  output       text not null default '',
+  status       text not null default 'Not Started',  -- 'Not Started' | 'In Progress' | 'Completed'
+  steps        jsonb not null default '[]'::jsonb,    -- [{id, label, done}]
+  position     integer not null default 0,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+create index if not exists milestones_client_id_idx on public.milestones(client_id);
+
+create table if not exists public.client_files (
+  id            uuid primary key default gen_random_uuid(),
+  client_id     uuid not null references public.clients(id) on delete cascade,
+  name          text not null,
+  category      text not null default 'Other',         -- 'Brand Kit' | 'Images' | 'Documents' | 'Videos' | 'Other'
+  type          text not null default 'other',         -- 'image' | 'pdf' | 'video' | 'link' | 'other'
+  url           text not null default '',
+  thumbnail     text,
+  size_label    text not null default '—',
+  notes         text not null default '',
+  storage_path  text,                                  -- set when uploaded to client-files bucket
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists client_files_client_id_idx on public.client_files(client_id);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Row-Level Security
 --   anon (public client view URLs):  SELECT only.
@@ -105,6 +138,8 @@ alter table public.task_comments        enable row level security;
 alter table public.comment_attachments  enable row level security;
 alter table public.daily_logs           enable row level security;
 alter table public.time_sessions        enable row level security;
+alter table public.milestones           enable row level security;
+alter table public.client_files         enable row level security;
 
 drop policy if exists "anon read clients"             on public.clients;
 drop policy if exists "anon read tasks"               on public.tasks;
@@ -112,6 +147,8 @@ drop policy if exists "anon read task_comments"       on public.task_comments;
 drop policy if exists "anon read comment_attachments" on public.comment_attachments;
 drop policy if exists "anon read daily_logs"          on public.daily_logs;
 drop policy if exists "anon read time_sessions"       on public.time_sessions;
+drop policy if exists "anon read milestones"          on public.milestones;
+drop policy if exists "anon read client_files"        on public.client_files;
 
 create policy "anon read clients"             on public.clients              for select using (true);
 create policy "anon read tasks"               on public.tasks                for select using (true);
@@ -119,6 +156,8 @@ create policy "anon read task_comments"       on public.task_comments        for
 create policy "anon read comment_attachments" on public.comment_attachments  for select using (true);
 create policy "anon read daily_logs"          on public.daily_logs           for select using (true);
 create policy "anon read time_sessions"       on public.time_sessions        for select using (true);
+create policy "anon read milestones"          on public.milestones           for select using (true);
+create policy "anon read client_files"        on public.client_files         for select using (true);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Realtime: broadcast row changes so the client view updates live
@@ -134,7 +173,9 @@ begin
     'public.task_comments',
     'public.comment_attachments',
     'public.daily_logs',
-    'public.time_sessions'
+    'public.time_sessions',
+    'public.milestones',
+    'public.client_files'
   ]
   loop
     if not exists (
@@ -160,3 +201,12 @@ drop policy if exists "public read task-attachments" on storage.objects;
 create policy "public read task-attachments"
   on storage.objects for select
   using (bucket_id = 'task-attachments');
+
+insert into storage.buckets (id, name, public)
+values ('client-files', 'client-files', true)
+on conflict (id) do nothing;
+
+drop policy if exists "public read client-files" on storage.objects;
+create policy "public read client-files"
+  on storage.objects for select
+  using (bucket_id = 'client-files');

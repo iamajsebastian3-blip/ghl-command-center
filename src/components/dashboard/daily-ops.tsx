@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment, useTransition } from "react";
 import {
   Clock,
   CheckCircle2,
@@ -19,25 +19,15 @@ import {
   LogOut,
   Printer,
 } from "lucide-react";
-import { defaultDailyLog, dailyLogByClient } from "@/lib/mock-data";
 import type { Client, DailyLog } from "@/lib/types";
-import { usePersistedState } from "@/lib/use-persisted-state";
+import { useDailyLog } from "@/lib/hooks/use-daily-log";
+import { useTimeSessions } from "@/lib/hooks/use-time-sessions";
+import { upsertDailyLogAction } from "@/app/actions/daily-log";
+import { createTimeSessionAction, deleteTimeSessionAction } from "@/app/actions/time-sessions";
 
-interface Props { client: Client }
+interface Props { client: Client; clientMode?: boolean }
 
 type TimerState = "idle" | "running" | "paused" | "stopped";
-
-interface StoredSession {
-  id: string;
-  date: string;        // YYYY-MM-DD (local)
-  start: string;       // local 12-hour time
-  end: string;
-  startEpoch: number;
-  seconds: number;
-  note?: string;
-}
-
-const HISTORY_KEY = (clientId: string) => `time-sessions:${clientId}`;
 
 function formatTime(totalSeconds: number) {
   const hrs = Math.floor(totalSeconds / 3600);
@@ -58,38 +48,34 @@ function todayKey() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function loadHistory(clientId: string): StoredSession[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(HISTORY_KEY(clientId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed as StoredSession[];
-  } catch {
-    return [];
-  }
-}
+const EMPTY_LOG = (clientId: string): DailyLog => ({
+  id: clientId,
+  date: todayKey(),
+  timeIn: "",
+  timeOut: "",
+  tasksCompleted: [],
+  pendingTasks: [],
+  priorities: [],
+  blockers: [],
+  nextDayPlan: [],
+});
 
-function saveHistory(clientId: string, history: StoredSession[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(HISTORY_KEY(clientId), JSON.stringify(history));
-}
+export default function DailyOps({ client, clientMode = false }: Props) {
+  const { log: serverLog } = useDailyLog(client.id);
+  const { sessions } = useTimeSessions(client.id);
 
-export default function DailyOps({ client }: Props) {
-  const seedLog = dailyLogByClient[client.id] ?? defaultDailyLog;
-  const [log, setLog] = usePersistedState<DailyLog>(`daily-log:${client.id}`, seedLog);
+  const log: DailyLog = serverLog ?? EMPTY_LOG(client.id);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
   const [newItem, setNewItem] = useState({ field: "", value: "" });
 
-  // Timer state
+  // Timer state — local only
   const [timerState, setTimerState] = useState<TimerState>("idle");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [timeInStamp, setTimeInStamp] = useState<string>("");
   const [startEpoch, setStartEpoch] = useState<number>(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Persistent history
-  const [history, setHistory] = useState<StoredSession[]>([]);
   const [showAllHistory, setShowAllHistory] = useState(false);
 
   // Manual entry form
@@ -99,11 +85,6 @@ export default function DailyOps({ client }: Props) {
   const [manualLogout, setManualLogout] = useState("");
   const [manualError, setManualError] = useState("");
 
-  // Hydrate history on client mount + when client changes.
-  useEffect(() => {
-    setHistory(loadHistory(client.id));
-  }, [client.id]);
-
   const stopInterval = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -112,6 +93,7 @@ export default function DailyOps({ client }: Props) {
   }, []);
 
   const startTimer = () => {
+    if (clientMode) return;
     if (timerState === "idle" || timerState === "stopped") {
       setElapsedSeconds(0);
       const now = new Date();
@@ -126,39 +108,50 @@ export default function DailyOps({ client }: Props) {
   };
 
   const pauseTimer = () => {
+    if (clientMode) return;
     setTimerState("paused");
     stopInterval();
   };
 
   const endTimer = () => {
+    if (clientMode) return;
     stopInterval();
     const endStamp = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-    const entry: StoredSession = {
-      id: `s-${Date.now()}`,
-      date: todayKey(),
-      start: timeInStamp,
-      end: endStamp,
-      startEpoch,
-      seconds: elapsedSeconds,
-    };
-    setHistory((prev) => {
-      const next = [entry, ...prev];
-      saveHistory(client.id, next);
-      return next;
-    });
+    const seconds = elapsedSeconds;
     setTimerState("stopped");
-    setLog((prev) => ({ ...prev, timeIn: timeInStamp, timeOut: endStamp }));
+
+    setActionError(null);
+    startTransition(async () => {
+      const result = await createTimeSessionAction({
+        client_id: client.id,
+        session_date: todayKey(),
+        start_label: timeInStamp,
+        end_label: endStamp,
+        start_epoch: startEpoch,
+        end_epoch: Date.now(),
+        seconds,
+      });
+      if (!result.ok) { setActionError(result.error); return; }
+      // Mirror to daily_log time_in/time_out
+      upsertDailyLogAction({
+        client_id: client.id,
+        time_in: timeInStamp,
+        time_out: endStamp,
+      });
+    });
   };
 
   const deleteSession = (id: string) => {
-    setHistory((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      saveHistory(client.id, next);
-      return next;
+    if (clientMode) return;
+    setActionError(null);
+    startTransition(async () => {
+      const result = await deleteTimeSessionAction(id);
+      if (!result.ok) setActionError(result.error);
     });
   };
 
   const addManualEntry = () => {
+    if (clientMode) return;
     setManualError("");
     if (!manualDate || !manualLogin || !manualLogout) {
       setManualError("Fill in date, login, and logout times.");
@@ -175,22 +168,27 @@ export default function DailyOps({ client }: Props) {
       setManualError("Logout must be after login.");
       return;
     }
-    const entry: StoredSession = {
-      id: `s-${Date.now()}`,
-      date: manualDate,
-      start: startDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }),
-      end: endDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }),
-      startEpoch: startDt.getTime(),
-      seconds,
-    };
-    setHistory((prev) => {
-      const next = [entry, ...prev];
-      saveHistory(client.id, next);
-      return next;
+    const startLabel = startDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    const endLabel = endDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+
+    startTransition(async () => {
+      const result = await createTimeSessionAction({
+        client_id: client.id,
+        session_date: manualDate,
+        start_label: startLabel,
+        end_label: endLabel,
+        start_epoch: startDt.getTime(),
+        end_epoch: endDt.getTime(),
+        seconds,
+      });
+      if (!result.ok) {
+        setManualError(result.error);
+        return;
+      }
+      setManualLogin("");
+      setManualLogout("");
+      setShowManualForm(false);
     });
-    setManualLogin("");
-    setManualLogout("");
-    setShowManualForm(false);
   };
 
   useEffect(() => {
@@ -199,40 +197,64 @@ export default function DailyOps({ client }: Props) {
 
   // Grouping: sessions by date (descending), with daily totals.
   const grouped = useMemo(() => {
-    const sorted = [...history].sort((a, b) => b.startEpoch - a.startEpoch);
-    const map = new Map<string, { sessions: StoredSession[]; total: number }>();
+    const sorted = [...sessions].sort((a, b) => b.startEpoch - a.startEpoch);
+    const map = new Map<string, { sessions: typeof sessions; total: number }>();
     for (const s of sorted) {
-      const existing = map.get(s.date) ?? { sessions: [], total: 0 };
+      const existing = map.get(s.date) ?? { sessions: [] as typeof sessions, total: 0 };
       existing.sessions.push(s);
       existing.total += s.seconds;
       map.set(s.date, existing);
     }
     return Array.from(map.entries()).map(([date, v]) => ({ date, ...v }));
-  }, [history]);
+  }, [sessions]);
 
-  const todayTotal = (grouped.find((g) => g.date === todayKey())?.total ?? 0) + (timerState === "running" || timerState === "paused" ? elapsedSeconds : 0);
+  const todayTotal = (grouped.find((g) => g.date === todayKey())?.total ?? 0)
+    + (timerState === "running" || timerState === "paused" ? elapsedSeconds : 0);
 
-  // Last 7 days total
   const weekTotal = useMemo(() => {
     const cutoff = Date.now() - 7 * 86400000;
-    return history.filter((s) => s.startEpoch >= cutoff).reduce((sum, s) => sum + s.seconds, 0)
+    return sessions.filter((s) => s.startEpoch >= cutoff).reduce((sum, s) => sum + s.seconds, 0)
       + (timerState === "running" || timerState === "paused" ? elapsedSeconds : 0);
-  }, [history, elapsedSeconds, timerState]);
+  }, [sessions, elapsedSeconds, timerState]);
 
   const visibleGroups = showAllHistory ? grouped : grouped.slice(0, 5);
 
-  const addItem = (field: "tasksCompleted" | "pendingTasks" | "priorities" | "blockers" | "nextDayPlan") => {
+  type LogField = "tasksCompleted" | "pendingTasks" | "priorities" | "blockers" | "nextDayPlan";
+  const fieldToCol: Record<LogField, "tasks_completed" | "pending_tasks" | "priorities" | "blockers" | "next_day_plan"> = {
+    tasksCompleted: "tasks_completed",
+    pendingTasks: "pending_tasks",
+    priorities: "priorities",
+    blockers: "blockers",
+    nextDayPlan: "next_day_plan",
+  };
+
+  const persistLogList = (field: LogField, next: string[]) => {
+    setActionError(null);
+    startTransition(async () => {
+      const result = await upsertDailyLogAction({
+        client_id: client.id,
+        [fieldToCol[field]]: next,
+      });
+      if (!result.ok) setActionError(result.error);
+    });
+  };
+
+  const addItem = (field: LogField) => {
+    if (clientMode) return;
     if (!newItem.value.trim() || newItem.field !== field) return;
-    setLog((prev) => ({ ...prev, [field]: [...prev[field], newItem.value.trim()] }));
+    const next = [...log[field], newItem.value.trim()];
+    persistLogList(field, next);
     setNewItem({ field: "", value: "" });
   };
 
-  const removeItem = (field: "tasksCompleted" | "pendingTasks" | "priorities" | "blockers" | "nextDayPlan", index: number) => {
-    setLog((prev) => ({ ...prev, [field]: prev[field].filter((_, i) => i !== index) }));
+  const removeItem = (field: LogField, index: number) => {
+    if (clientMode) return;
+    const next = log[field].filter((_, i) => i !== index);
+    persistLogList(field, next);
   };
 
   const sections: {
-    key: "tasksCompleted" | "pendingTasks" | "priorities" | "blockers" | "nextDayPlan";
+    key: LogField;
     label: string;
     icon: React.ElementType;
     color: string;
@@ -247,7 +269,7 @@ export default function DailyOps({ client }: Props) {
   ];
 
   // Total seconds across all logged history (for the printable timesheet footer)
-  const totalAllSeconds = history.reduce((sum, s) => sum + s.seconds, 0);
+  const totalAllSeconds = sessions.reduce((sum, s) => sum + s.seconds, 0);
   const generatedAt = new Date().toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
   const periodStart = grouped.length > 0 ? grouped[grouped.length - 1].date : null;
   const periodEnd = grouped.length > 0 ? grouped[0].date : null;
@@ -259,7 +281,7 @@ export default function DailyOps({ client }: Props) {
 
   return (
     <>
-      {/* Hidden printable timesheet — visible only in browser print dialog */}
+      {/* Hidden printable timesheet */}
       <div className="print-timesheet">
         <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: "16px", borderBottom: "2px solid #6366F1" }}>
           <div>
@@ -274,7 +296,7 @@ export default function DailyOps({ client }: Props) {
           </div>
         </header>
 
-        {history.length === 0 ? (
+        {sessions.length === 0 ? (
           <p style={{ marginTop: "30px", color: "#94A3B8", fontSize: "12px" }}>No sessions logged.</p>
         ) : (
           <table>
@@ -311,7 +333,7 @@ export default function DailyOps({ client }: Props) {
         )}
 
         <div className="totals">
-          <span>{history.length} {history.length === 1 ? "session" : "sessions"} across {grouped.length} {grouped.length === 1 ? "day" : "days"}</span>
+          <span>{sessions.length} {sessions.length === 1 ? "session" : "sessions"} across {grouped.length} {grouped.length === 1 ? "day" : "days"}</span>
           <span>Total: <strong>{formatMinutes(totalAllSeconds)}</strong></span>
         </div>
 
@@ -335,6 +357,12 @@ export default function DailyOps({ client }: Props) {
         <p className="text-sm text-text-secondary mt-1">{client.name} &middot; Daily log</p>
       </div>
 
+      {actionError && (
+        <div className="card p-3 border border-red-500/30 bg-red-500/5">
+          <p className="text-xs text-red-500">{actionError}</p>
+        </div>
+      )}
+
       {/* Timer Section */}
       <div className="card p-5 animate-in opacity-0 animate-delay-1">
         <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
@@ -351,20 +379,20 @@ export default function DailyOps({ client }: Props) {
         </div>
 
         <div className="flex items-center gap-6 flex-wrap">
-          {/* Timer Display */}
           <div className="text-center">
             <p className={`text-4xl font-mono font-bold tracking-wider ${timerState === "running" ? "text-green" : timerState === "paused" ? "text-yellow" : "text-text-primary"}`}>
               {formatTime(elapsedSeconds)}
             </p>
             <p className="text-xs text-text-muted mt-1">
-              {timerState === "idle" && "Ready to start"}
+              {clientMode && timerState === "idle" && "Read-only view"}
+              {!clientMode && timerState === "idle" && "Ready to start"}
               {timerState === "running" && "Running..."}
               {timerState === "paused" && "Paused"}
               {timerState === "stopped" && `Saved: ${formatMinutes(elapsedSeconds)}`}
             </p>
           </div>
 
-          {/* Controls */}
+          {!clientMode && (
           <div className="flex items-center gap-2">
             {(timerState === "idle" || timerState === "stopped") && (
               <button onClick={startTimer} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-green-soft text-green font-medium text-sm hover:bg-green/20 transition-colors cursor-pointer">
@@ -392,21 +420,21 @@ export default function DailyOps({ client }: Props) {
               </>
             )}
           </div>
+          )}
 
-          {/* Time In / Out Display */}
           <div className="flex gap-6 ml-auto">
             <div>
               <p className="text-[10px] text-text-muted uppercase tracking-wider">Time In</p>
-              <p className="text-sm font-semibold text-text-primary">{timeInStamp || "—"}</p>
+              <p className="text-sm font-semibold text-text-primary">{timeInStamp || log.timeIn || "—"}</p>
             </div>
             <div>
               <p className="text-[10px] text-text-muted uppercase tracking-wider">Time Out</p>
-              <p className="text-sm font-semibold text-text-primary">{timerState === "stopped" ? log.timeOut : "—"}</p>
+              <p className="text-sm font-semibold text-text-primary">{log.timeOut || "—"}</p>
             </div>
           </div>
         </div>
 
-        {/* Manual entry */}
+        {!clientMode && (
         <div className="mt-4 pt-4 border-t border-border-subtle">
           {!showManualForm ? (
             <button onClick={() => { setShowManualForm(true); setManualError(""); }} className="text-xs text-purple hover:text-purple-light flex items-center gap-1.5 cursor-pointer font-medium">
@@ -418,50 +446,28 @@ export default function DailyOps({ client }: Props) {
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-text-muted" />
-                  <input
-                    type="date"
-                    value={manualDate}
-                    max={todayKey()}
-                    onChange={(e) => setManualDate(e.target.value)}
-                    className="bg-bg-surface border border-border-subtle rounded-lg px-2.5 py-2 text-xs text-text-primary focus:outline-none focus:border-purple/40"
-                  />
+                  <input type="date" value={manualDate} max={todayKey()} onChange={(e) => setManualDate(e.target.value)}
+                    className="bg-bg-surface border border-border-subtle rounded-lg px-2.5 py-2 text-xs text-text-primary focus:outline-none focus:border-purple/40" />
                 </div>
                 <div className="flex items-center gap-1.5">
                   <LogIn className="w-3.5 h-3.5 text-green" />
-                  <input
-                    type="time"
-                    value={manualLogin}
-                    onChange={(e) => setManualLogin(e.target.value)}
-                    className="bg-bg-surface border border-border-subtle rounded-lg px-2.5 py-2 text-xs text-text-primary focus:outline-none focus:border-purple/40"
-                  />
+                  <input type="time" value={manualLogin} onChange={(e) => setManualLogin(e.target.value)}
+                    className="bg-bg-surface border border-border-subtle rounded-lg px-2.5 py-2 text-xs text-text-primary focus:outline-none focus:border-purple/40" />
                 </div>
                 <span className="text-text-muted text-xs">→</span>
                 <div className="flex items-center gap-1.5">
                   <LogOut className="w-3.5 h-3.5 text-purple" />
-                  <input
-                    type="time"
-                    value={manualLogout}
-                    onChange={(e) => setManualLogout(e.target.value)}
-                    className="bg-bg-surface border border-border-subtle rounded-lg px-2.5 py-2 text-xs text-text-primary focus:outline-none focus:border-purple/40"
-                  />
+                  <input type="time" value={manualLogout} onChange={(e) => setManualLogout(e.target.value)}
+                    className="bg-bg-surface border border-border-subtle rounded-lg px-2.5 py-2 text-xs text-text-primary focus:outline-none focus:border-purple/40" />
                 </div>
-                <button
-                  onClick={addManualEntry}
-                  className="px-3 py-2 rounded-lg bg-purple text-white text-xs font-medium hover:bg-purple-light transition-colors cursor-pointer"
-                >
-                  Save entry
-                </button>
-                <button
-                  onClick={() => { setShowManualForm(false); setManualError(""); }}
-                  className="p-2 rounded-lg text-text-muted hover:text-text-secondary cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <button onClick={addManualEntry} className="px-3 py-2 rounded-lg bg-purple text-white text-xs font-medium hover:bg-purple-light transition-colors cursor-pointer">Save entry</button>
+                <button onClick={() => { setShowManualForm(false); setManualError(""); }} className="p-2 rounded-lg text-text-muted hover:text-text-secondary cursor-pointer"><X className="w-4 h-4" /></button>
               </div>
               {manualError && <p className="text-xs text-yellow mt-2">{manualError}</p>}
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Session History */}
@@ -469,15 +475,12 @@ export default function DailyOps({ client }: Props) {
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
             <History className="w-4 h-4 text-purple" /> Session History
-            <span className="text-xs text-text-muted font-normal">({history.length} {history.length === 1 ? "session" : "sessions"} logged)</span>
+            <span className="text-xs text-text-muted font-normal">({sessions.length} {sessions.length === 1 ? "session" : "sessions"} logged)</span>
           </h2>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => window.print()}
-              disabled={history.length === 0}
+            <button onClick={() => window.print()} disabled={sessions.length === 0}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple text-white text-xs font-medium hover:bg-purple-light transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-              title="Open the print dialog with a clean timesheet — pick 'Save as PDF'"
-            >
+              title="Open the print dialog with a clean timesheet — pick 'Save as PDF'">
               <Printer className="w-3.5 h-3.5" /> Export PDF
             </button>
             {grouped.length > 5 && (
@@ -488,11 +491,11 @@ export default function DailyOps({ client }: Props) {
           </div>
         </div>
 
-        {history.length === 0 ? (
+        {sessions.length === 0 ? (
           <div className="text-center py-10">
             <Clock className="w-8 h-8 text-text-muted mx-auto mb-2" />
             <p className="text-sm text-text-muted">No sessions logged yet</p>
-            <p className="text-xs text-text-muted mt-1">Hit Start above to log your first session.</p>
+            {!clientMode && <p className="text-xs text-text-muted mt-1">Hit Start above to log your first session.</p>}
           </div>
         ) : (
           <div className="space-y-5">
@@ -515,9 +518,11 @@ export default function DailyOps({ client }: Props) {
                         <span className="w-1.5 h-1.5 rounded-full bg-purple shrink-0" />
                         <span className="text-sm text-text-secondary flex-1">{s.start} → {s.end}</span>
                         <span className="text-sm font-medium text-text-primary">{formatMinutes(s.seconds)}</span>
-                        <button onClick={() => deleteSession(s.id)} className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-yellow transition-all cursor-pointer">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {!clientMode && (
+                          <button onClick={() => deleteSession(s.id)} className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-yellow transition-all cursor-pointer">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -546,29 +551,29 @@ export default function DailyOps({ client }: Props) {
                   <div key={idx} className="flex items-center gap-3 py-2.5 px-3 rounded-lg bg-bg-surface group hover:bg-bg-elevated transition-colors">
                     <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${section.dotColor}`} />
                     <span className="text-sm text-text-primary flex-1">{item}</span>
-                    <button onClick={() => removeItem(section.key, idx)} className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-yellow transition-all cursor-pointer">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+                    {!clientMode && (
+                      <button onClick={() => removeItem(section.key, idx)} className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-yellow transition-all cursor-pointer">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))
               )}
             </div>
 
-            {/* Always-visible input */}
+            {!clientMode && (
             <div className="flex gap-2">
-              <input
-                type="text"
-                value={newItem.field === section.key ? newItem.value : ""}
+              <input type="text" value={newItem.field === section.key ? newItem.value : ""}
                 onFocus={() => setNewItem((prev) => ({ ...prev, field: section.key }))}
                 onChange={(e) => setNewItem({ field: section.key, value: e.target.value })}
                 onKeyDown={(e) => e.key === "Enter" && addItem(section.key)}
                 placeholder={`+ Add ${section.label.toLowerCase()}...`}
-                className="flex-1 bg-bg-surface border border-border-subtle rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-purple/40"
-              />
+                className="flex-1 bg-bg-surface border border-border-subtle rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-purple/40" />
               {newItem.field === section.key && newItem.value.trim() && (
                 <button onClick={() => addItem(section.key)} className="px-3 py-2 rounded-lg bg-purple text-white text-sm font-medium hover:bg-purple-light transition-colors cursor-pointer">Add</button>
               )}
             </div>
+            )}
           </div>
         ))}
       </div>

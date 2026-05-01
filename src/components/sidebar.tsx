@@ -17,7 +17,8 @@ interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
   client: Client;
-  onBack: () => void;
+  onBack?: () => void;
+  badge?: string;
 }
 
 const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
@@ -27,14 +28,21 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
   { id: "files", label: "Files & Assets", icon: FolderOpen },
 ];
 
-export default function Sidebar({ activeView, onViewChange, collapsed, onToggle, client, onBack }: SidebarProps) {
+export default function Sidebar({ activeView, onViewChange, collapsed, onToggle, client, onBack, badge }: SidebarProps) {
   return (
     <aside className={`fixed top-0 left-0 h-full z-40 flex flex-col bg-bg-card border-r border-border-subtle transition-all duration-300 ${collapsed ? "w-[68px]" : "w-[240px]"}`}>
       <div className="px-4 py-4 border-b border-border-subtle">
-        <button onClick={onBack} className="flex items-center gap-2 text-xs text-text-muted hover:text-purple transition-colors cursor-pointer mb-3">
-          <ArrowLeft className="w-3.5 h-3.5" />
-          {!collapsed && <span>All Clients</span>}
-        </button>
+        {onBack && (
+          <button onClick={onBack} className="flex items-center gap-2 text-xs text-text-muted hover:text-purple transition-colors cursor-pointer mb-3">
+            <ArrowLeft className="w-3.5 h-3.5" />
+            {!collapsed && <span>All Clients</span>}
+          </button>
+        )}
+        {badge && !collapsed && (
+          <div className="mb-3">
+            <span className="badge bg-green-soft text-green text-[10px]">{badge}</span>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           {client.image ? (
             <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 ring-1 ring-border-subtle">

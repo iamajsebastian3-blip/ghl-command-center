@@ -1,53 +1,35 @@
 "use client";
 
-import { Zap, MessageSquare } from "lucide-react";
-import type { Client } from "@/lib/types";
+import { useState } from "react";
+import Sidebar from "@/components/sidebar";
+import CEODashboard from "@/components/dashboard/ceo-dashboard";
+import DailyOps from "@/components/dashboard/daily-ops";
 import TaskManager from "@/components/dashboard/task-manager";
+import Files from "@/components/dashboard/files";
+import type { Client, ViewType } from "@/lib/types";
 
 export default function PublicClientView({ client, slug }: { client: Client; slug: string }) {
-  return (
-    <div className="min-h-screen bg-bg-surface flex flex-col">
-      <header className="bg-bg-card border-b border-border-subtle px-6 py-4 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            {client.image ? (
-              <div className="w-10 h-10 rounded-full overflow-hidden ring-1 ring-border-subtle">
-                <img src={client.image} alt={client.name} className="w-full h-full object-cover" />
-              </div>
-            ) : (
-              <div className="w-10 h-10 rounded-full bg-purple-soft flex items-center justify-center">
-                <span className="text-sm font-bold text-purple">{client.avatar}</span>
-              </div>
-            )}
-            <div>
-              <p className="text-sm font-bold text-text-primary leading-tight">{client.company}</p>
-              <p className="text-xs text-text-muted">{client.name}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-text-muted">
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>Live · comments enabled</span>
-          </div>
-        </div>
-      </header>
+  const [activeView, setActiveView] = useState<ViewType>("dashboard");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-      <main className="flex-1 px-6 py-8">
-        <div className="max-w-5xl mx-auto">
-          <TaskManager client={client} clientMode slug={slug} />
+  return (
+    <div className="min-h-screen bg-bg-surface">
+      <Sidebar
+        activeView={activeView}
+        onViewChange={setActiveView}
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        client={client}
+        badge="Live · comments enabled"
+      />
+      <main className={`transition-all duration-300 ${sidebarCollapsed ? "ml-[68px]" : "ml-[240px]"}`}>
+        <div className="p-6 lg:p-8 max-w-[1400px]">
+          {activeView === "dashboard" && <CEODashboard client={client} clientMode />}
+          {activeView === "daily-ops" && <DailyOps client={client} clientMode />}
+          {activeView === "tasks" && <TaskManager client={client} clientMode slug={slug} />}
+          {activeView === "files" && <Files client={client} clientMode />}
         </div>
       </main>
-
-      <footer className="border-t border-border-subtle px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-text-muted">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded bg-purple flex items-center justify-center">
-              <Zap className="w-3 h-3 text-white" />
-            </div>
-            <span>GHL Command Center · System-BuiltBy AJ</span>
-          </div>
-          <span>Open a task to leave feedback.</span>
-        </div>
-      </footer>
     </div>
   );
 }

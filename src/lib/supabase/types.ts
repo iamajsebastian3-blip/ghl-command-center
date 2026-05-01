@@ -135,6 +135,58 @@ export type TimeSessionInsert = {
   seconds?: number;
 };
 
+export interface MilestoneRow {
+  id: string;
+  client_id: string;
+  number: number;
+  title: string;
+  target_date: string | null;
+  intent: string;
+  output: string;
+  status: "Not Started" | "In Progress" | "Completed";
+  steps: { id: string; label: string; done: boolean }[];
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+export type MilestoneInsert = {
+  client_id: string;
+  number: number;
+  title: string;
+  target_date?: string | null;
+  intent?: string;
+  output?: string;
+  status?: MilestoneRow["status"];
+  steps?: MilestoneRow["steps"];
+  position?: number;
+};
+export type MilestoneUpdate = Partial<Omit<MilestoneRow, "id" | "client_id" | "created_at">>;
+
+export interface ClientFileRow {
+  id: string;
+  client_id: string;
+  name: string;
+  category: "Brand Kit" | "Images" | "Documents" | "Videos" | "Other";
+  type: "image" | "pdf" | "video" | "link" | "other";
+  url: string;
+  thumbnail: string | null;
+  size_label: string;
+  notes: string;
+  storage_path: string | null;
+  created_at: string;
+}
+export type ClientFileInsert = {
+  client_id: string;
+  name: string;
+  category?: ClientFileRow["category"];
+  type?: ClientFileRow["type"];
+  url?: string;
+  thumbnail?: string | null;
+  size_label?: string;
+  notes?: string;
+  storage_path?: string | null;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -144,6 +196,8 @@ export type Database = {
       comment_attachments: { Row: CommentAttachmentRow;  Insert: CommentAttachmentInsert;  Update: Partial<CommentAttachmentRow> };
       daily_logs:          { Row: DailyLogRow;           Insert: DailyLogUpsert;           Update: Partial<DailyLogRow> };
       time_sessions:       { Row: TimeSessionRow;        Insert: TimeSessionInsert;        Update: Partial<TimeSessionRow> };
+      milestones:          { Row: MilestoneRow;          Insert: MilestoneInsert;          Update: MilestoneUpdate };
+      client_files:        { Row: ClientFileRow;         Insert: ClientFileInsert;         Update: Partial<ClientFileRow> };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

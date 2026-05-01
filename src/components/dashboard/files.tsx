@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useTransition } from "react";
 import {
   FolderOpen,
   Upload,
@@ -11,48 +11,42 @@ import {
   Palette,
   Plus,
   X,
-  Download,
   Trash2,
   Search,
   Grid3X3,
   List,
   ExternalLink,
-  Link,
+  Link as LinkIcon,
+  Loader2,
 } from "lucide-react";
 import type { Client, FileItem, FileCategory } from "@/lib/types";
-import { filesByClient } from "@/lib/mock-data";
-import { usePersistedState } from "@/lib/use-persisted-state";
+import { useClientFiles } from "@/lib/hooks/use-client-files";
+import {
+  uploadClientFileAction,
+  addClientFileLinkAction,
+  deleteClientFileAction,
+} from "@/app/actions/client-files";
 
-interface Props { client: Client }
+interface Props { client: Client; clientMode?: boolean }
 
 type ViewMode = "grid" | "list";
 
 const categoryConfig: Record<FileCategory, { icon: React.ElementType; color: string; bg: string }> = {
-  "Brand Kit": { icon: Palette, color: "text-purple", bg: "bg-purple-soft" },
-  "Images": { icon: Image, color: "text-green", bg: "bg-green-soft" },
-  "Documents": { icon: FileText, color: "text-yellow", bg: "bg-yellow-soft" },
-  "Videos": { icon: Film, color: "text-purple-light", bg: "bg-purple-soft" },
-  "Other": { icon: File, color: "text-text-muted", bg: "bg-bg-surface" },
+  "Brand Kit": { icon: Palette,  color: "text-purple",       bg: "bg-purple-soft" },
+  "Images":    { icon: Image,    color: "text-green",        bg: "bg-green-soft" },
+  "Documents": { icon: FileText, color: "text-yellow",       bg: "bg-yellow-soft" },
+  "Videos":    { icon: Film,     color: "text-purple-light", bg: "bg-purple-soft" },
+  "Other":     { icon: File,     color: "text-text-muted",   bg: "bg-bg-surface" },
 };
 
 const allCategories: FileCategory[] = ["Brand Kit", "Images", "Documents", "Videos", "Other"];
 
-const defaultFiles: FileItem[] = [
-  { id: "f1", name: "Logo - Primary (Purple)", category: "Brand Kit", type: "image", url: "", thumbnail: "", size: "245 KB", uploadedAt: "2026-04-10", notes: "Main logo on dark bg" },
-  { id: "f2", name: "Logo - White", category: "Brand Kit", type: "image", url: "", thumbnail: "", size: "180 KB", uploadedAt: "2026-04-10", notes: "For light backgrounds" },
-  { id: "f3", name: "Brand Colors & Fonts", category: "Brand Kit", type: "pdf", url: "", size: "1.2 MB", uploadedAt: "2026-04-10", notes: "Purple #5E17EB, Yellow #FBBF24, Inter font" },
-  { id: "f4", name: "Hero Banner - Homepage", category: "Images", type: "image", url: "", thumbnail: "", size: "890 KB", uploadedAt: "2026-04-12", notes: "1920x1080" },
-  { id: "f5", name: "Team Photo", category: "Images", type: "image", url: "", thumbnail: "", size: "2.1 MB", uploadedAt: "2026-04-08", notes: "" },
-  { id: "f6", name: "Client Testimonial Video", category: "Videos", type: "video", url: "", size: "48 MB", uploadedAt: "2026-04-05", notes: "30 sec for funnel" },
-  { id: "f7", name: "Service Agreement Template", category: "Documents", type: "pdf", url: "", size: "340 KB", uploadedAt: "2026-03-20", notes: "Editable template" },
-  { id: "f8", name: "Ad Creatives - Facebook", category: "Images", type: "image", url: "", thumbnail: "", size: "1.5 MB", uploadedAt: "2026-04-14", notes: "5 variations, 1080x1080" },
-  { id: "f9", name: "Google Drive - Project Folder", category: "Other", type: "link", url: "#", size: "—", uploadedAt: "2026-04-01", notes: "Shared folder with all deliverables" },
-];
-
-function FileCard({ file, onRemove, viewMode }: { file: FileItem; onRemove: (id: string) => void; viewMode: ViewMode }) {
+function FileCard({
+  file, onRemove, viewMode, clientMode,
+}: { file: FileItem; onRemove: (id: string) => void; viewMode: ViewMode; clientMode: boolean }) {
   const cfg = categoryConfig[file.category];
   const Icon = cfg.icon;
-  const typeIcon = file.type === "image" ? Image : file.type === "pdf" ? FileText : file.type === "video" ? Film : file.type === "link" ? Link : File;
+  const typeIcon = file.type === "image" ? Image : file.type === "pdf" ? FileText : file.type === "video" ? Film : file.type === "link" ? LinkIcon : File;
   const TypeIcon = typeIcon;
 
   if (viewMode === "list") {
@@ -69,8 +63,8 @@ function FileCard({ file, onRemove, viewMode }: { file: FileItem; onRemove: (id:
         <span className="text-xs text-text-muted shrink-0 w-16 text-right">{file.size}</span>
         <span className="text-xs text-text-muted shrink-0 w-16 text-right">{new Date(file.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
         <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-          {file.type === "link" && <a href={file.url} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-md text-text-muted hover:text-purple hover:bg-purple-soft transition-colors cursor-pointer"><ExternalLink className="w-3.5 h-3.5" /></a>}
-          <button onClick={() => onRemove(file.id)} className="p-1.5 rounded-md text-text-muted hover:text-yellow hover:bg-yellow-soft transition-colors cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
+          {file.url && <a href={file.url} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-md text-text-muted hover:text-purple hover:bg-purple-soft transition-colors cursor-pointer"><ExternalLink className="w-3.5 h-3.5" /></a>}
+          {!clientMode && <button onClick={() => onRemove(file.id)} className="p-1.5 rounded-md text-text-muted hover:text-yellow hover:bg-yellow-soft transition-colors cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
       </div>
     );
@@ -80,11 +74,10 @@ function FileCard({ file, onRemove, viewMode }: { file: FileItem; onRemove: (id:
 
   return (
     <div className="card p-4 group">
-      {/* Thumbnail area */}
       {previewUrl ? (
-        <div className="w-full h-28 rounded-lg overflow-hidden mb-3 bg-bg-surface">
+        <a href={file.url || previewUrl} target="_blank" rel="noopener noreferrer" className="block w-full h-28 rounded-lg overflow-hidden mb-3 bg-bg-surface">
           <img src={previewUrl} alt={file.name} className="w-full h-full object-cover" />
-        </div>
+        </a>
       ) : (
         <div className={`w-full h-28 rounded-lg ${cfg.bg} flex items-center justify-center mb-3`}>
           <TypeIcon className={`w-8 h-8 ${cfg.color} opacity-40`} />
@@ -100,23 +93,31 @@ function FileCard({ file, onRemove, viewMode }: { file: FileItem; onRemove: (id:
       <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-border-subtle">
         <span className="text-[10px] text-text-muted">{new Date(file.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {file.type === "link" && <a href={file.url} target="_blank" rel="noopener noreferrer" className="p-1 rounded text-text-muted hover:text-purple cursor-pointer"><ExternalLink className="w-3.5 h-3.5" /></a>}
-          <button onClick={() => onRemove(file.id)} className="p-1 rounded text-text-muted hover:text-yellow cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
+          {file.url && <a href={file.url} target="_blank" rel="noopener noreferrer" className="p-1 rounded text-text-muted hover:text-purple cursor-pointer"><ExternalLink className="w-3.5 h-3.5" /></a>}
+          {!clientMode && <button onClick={() => onRemove(file.id)} className="p-1 rounded text-text-muted hover:text-yellow cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
       </div>
     </div>
   );
 }
 
-export default function Files({ client }: Props) {
-  const seedFiles = filesByClient[client.id] ?? defaultFiles;
-  const [files, setFiles] = usePersistedState<FileItem[]>(`files:${client.id}`, seedFiles);
+export default function Files({ client, clientMode = false }: Props) {
+  const { files, loading } = useClientFiles(client.id);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<FileCategory | "All">("All");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newFile, setNewFile] = useState({ name: "", category: "Brand Kit" as FileCategory, type: "image" as FileItem["type"], url: "", size: "", notes: "" });
+  const [newFile, setNewFile] = useState({
+    name: "",
+    category: "Brand Kit" as FileCategory,
+    type: "link" as FileItem["type"],
+    url: "",
+    notes: "",
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [, startTransition] = useTransition();
 
   const filtered = files.filter((f) => {
     const matchSearch = f.name.toLowerCase().includes(search.toLowerCase()) || f.notes.toLowerCase().includes(search.toLowerCase());
@@ -124,50 +125,47 @@ export default function Files({ client }: Props) {
     return matchSearch && matchCategory;
   });
 
-  const addFile = () => {
+  const addLinkOrEntry = () => {
+    if (clientMode) return;
     if (!newFile.name.trim()) return;
-    const file: FileItem = {
-      id: `f${Date.now()}`,
-      name: newFile.name.trim(),
-      category: newFile.category,
-      type: newFile.type,
-      url: newFile.url.trim(),
-      size: newFile.size.trim() || "—",
-      uploadedAt: new Date().toISOString().split("T")[0],
-      notes: newFile.notes.trim(),
-    };
-    setFiles((prev) => [file, ...prev]);
-    setNewFile({ name: "", category: "Brand Kit", type: "image", url: "", size: "", notes: "" });
-    setShowAddForm(false);
+    setActionError(null);
+    startTransition(async () => {
+      const result = await addClientFileLinkAction({
+        clientId: client.id,
+        name: newFile.name,
+        category: newFile.category,
+        type: newFile.type,
+        url: newFile.url,
+        notes: newFile.notes,
+      });
+      if (!result.ok) { setActionError(result.error); return; }
+      setNewFile({ name: "", category: "Brand Kit", type: "link", url: "", notes: "" });
+      setShowAddForm(false);
+    });
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (clientMode) return;
     const uploadedFiles = e.target.files;
-    if (!uploadedFiles) return;
-    Array.from(uploadedFiles).forEach((f) => {
-      const ext = f.name.split(".").pop()?.toLowerCase() || "";
-      let type: FileItem["type"] = "other";
-      let category: FileCategory = "Other";
-      if (["jpg", "jpeg", "png", "gif", "svg", "webp"].includes(ext)) { type = "image"; category = "Images"; }
-      else if (["pdf", "doc", "docx", "txt"].includes(ext)) { type = "pdf"; category = "Documents"; }
-      else if (["mp4", "mov", "avi", "webm"].includes(ext)) { type = "video"; category = "Videos"; }
-
-      const sizeKB = Math.round(f.size / 1024);
-      const sizeStr = sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${sizeKB} KB`;
-
-      const fileItem: FileItem = {
-        id: `f${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        name: f.name,
-        category,
-        type,
-        url: URL.createObjectURL(f),
-        size: sizeStr,
-        uploadedAt: new Date().toISOString().split("T")[0],
-        notes: "",
-      };
-      setFiles((prev) => [fileItem, ...prev]);
-    });
+    if (!uploadedFiles || uploadedFiles.length === 0) return;
+    setActionError(null);
+    setUploading(true);
+    const fd = new FormData();
+    fd.set("clientId", client.id);
+    Array.from(uploadedFiles).forEach((f) => fd.append("files", f));
+    const result = await uploadClientFileAction(fd);
+    setUploading(false);
+    if (!result.ok) setActionError(result.error);
     e.target.value = "";
+  };
+
+  const removeFile = (id: string) => {
+    if (clientMode) return;
+    setActionError(null);
+    startTransition(async () => {
+      const result = await deleteClientFileAction(id);
+      if (!result.ok) setActionError(result.error);
+    });
   };
 
   const categoryCounts = allCategories.map((cat) => ({
@@ -183,19 +181,27 @@ export default function Files({ client }: Props) {
           <h1 className="text-2xl font-bold text-text-primary">Files & Assets</h1>
           <p className="text-sm text-text-secondary mt-1">{client.name} &middot; Brand kits, images, documents, and more</p>
         </div>
-        <div className="flex gap-2">
-          <input type="file" ref={fileInputRef} onChange={handleFileUpload} multiple className="hidden" accept="image/*,.pdf,.doc,.docx,.mp4,.mov,.svg" />
-          <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-card border border-border-subtle text-sm font-medium text-text-primary hover:border-purple/20 transition-colors cursor-pointer">
-            <Upload className="w-4 h-4 text-purple" /> Upload Files
-          </button>
-          <button onClick={() => setShowAddForm(true)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple text-white text-sm font-medium hover:bg-purple-light transition-colors cursor-pointer">
-            <Plus className="w-4 h-4" /> Add Entry
-          </button>
-        </div>
+        {!clientMode && (
+          <div className="flex gap-2">
+            <input type="file" ref={fileInputRef} onChange={handleFileUpload} multiple className="hidden" accept="image/*,.pdf,.doc,.docx,.mp4,.mov,.svg,.webm" />
+            <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-card border border-border-subtle text-sm font-medium text-text-primary hover:border-purple/20 transition-colors cursor-pointer disabled:opacity-50">
+              {uploading ? <Loader2 className="w-4 h-4 text-purple animate-spin" /> : <Upload className="w-4 h-4 text-purple" />} Upload Files
+            </button>
+            <button onClick={() => setShowAddForm(true)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple text-white text-sm font-medium hover:bg-purple-light transition-colors cursor-pointer">
+              <Plus className="w-4 h-4" /> Add Link
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Add Entry Form */}
-      {showAddForm && (
+      {actionError && (
+        <div className="card p-3 border border-red-500/30 bg-red-500/5">
+          <p className="text-xs text-red-500">{actionError}</p>
+        </div>
+      )}
+
+      {showAddForm && !clientMode && (
         <div className="card p-4 border-l-4 border-l-purple animate-in opacity-0">
           <p className="text-sm font-semibold text-text-primary mb-3">Add File / Link</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -204,23 +210,22 @@ export default function Files({ client }: Props) {
               {allCategories.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
             <select value={newFile.type} onChange={(e) => setNewFile((p) => ({ ...p, type: e.target.value as FileItem["type"] }))} className="bg-bg-surface border border-border-subtle rounded-lg px-3 py-2.5 text-sm text-text-primary cursor-pointer focus:outline-none">
+              <option value="link">External Link</option>
               <option value="image">Image</option>
               <option value="pdf">PDF / Document</option>
               <option value="video">Video</option>
-              <option value="link">External Link</option>
               <option value="other">Other</option>
             </select>
-            <input type="text" value={newFile.url} onChange={(e) => setNewFile((p) => ({ ...p, url: e.target.value }))} placeholder="URL or link (optional)" className="bg-bg-surface border border-border-subtle rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-purple/40" />
+            <input type="text" value={newFile.url} onChange={(e) => setNewFile((p) => ({ ...p, url: e.target.value }))} placeholder="URL or link" className="bg-bg-surface border border-border-subtle rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-purple/40" />
             <input type="text" value={newFile.notes} onChange={(e) => setNewFile((p) => ({ ...p, notes: e.target.value }))} placeholder="Notes (optional)" className="bg-bg-surface border border-border-subtle rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-purple/40" />
             <div className="flex gap-2">
-              <button onClick={addFile} className="flex-1 px-4 py-2.5 rounded-lg bg-purple text-white text-sm font-medium hover:bg-purple-light transition-colors cursor-pointer">Add</button>
+              <button onClick={addLinkOrEntry} className="flex-1 px-4 py-2.5 rounded-lg bg-purple text-white text-sm font-medium hover:bg-purple-light transition-colors cursor-pointer">Add</button>
               <button onClick={() => setShowAddForm(false)} className="px-3 py-2.5 text-text-muted hover:text-text-secondary cursor-pointer"><X className="w-4 h-4" /></button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Category Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 animate-in opacity-0 animate-delay-1">
         {categoryCounts.map(({ category, count, icon: Icon, color, bg }) => (
           <button
@@ -237,7 +242,6 @@ export default function Files({ client }: Props) {
         ))}
       </div>
 
-      {/* Search + View Toggle */}
       <div className="flex items-center gap-3 animate-in opacity-0 animate-delay-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
@@ -250,7 +254,6 @@ export default function Files({ client }: Props) {
         </div>
       </div>
 
-      {/* Filter pills */}
       {filterCategory !== "All" && (
         <div className="flex items-center gap-2 animate-in opacity-0">
           <span className="text-xs text-text-muted">Filtered by:</span>
@@ -259,12 +262,15 @@ export default function Files({ client }: Props) {
         </div>
       )}
 
-      {/* Files */}
       <div className="animate-in opacity-0 animate-delay-3">
-        {viewMode === "grid" ? (
+        {loading ? (
+          <div className="card p-12 text-center">
+            <Loader2 className="w-5 h-5 text-purple animate-spin mx-auto" />
+          </div>
+        ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {filtered.map((file) => (
-              <FileCard key={file.id} file={file} onRemove={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))} viewMode="grid" />
+              <FileCard key={file.id} file={file} onRemove={removeFile} viewMode="grid" clientMode={clientMode} />
             ))}
           </div>
         ) : (
@@ -278,16 +284,16 @@ export default function Files({ client }: Props) {
               <span className="w-16" />
             </div>
             {filtered.map((file) => (
-              <FileCard key={file.id} file={file} onRemove={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))} viewMode="list" />
+              <FileCard key={file.id} file={file} onRemove={removeFile} viewMode="list" clientMode={clientMode} />
             ))}
           </div>
         )}
 
-        {filtered.length === 0 && (
+        {!loading && filtered.length === 0 && (
           <div className="card p-12 text-center">
             <FolderOpen className="w-8 h-8 text-text-muted mx-auto mb-3" />
             <p className="text-sm text-text-muted">No files found</p>
-            <p className="text-xs text-text-muted mt-1">Upload files or add entries manually</p>
+            {!clientMode && <p className="text-xs text-text-muted mt-1">Upload files or add link entries</p>}
           </div>
         )}
       </div>
