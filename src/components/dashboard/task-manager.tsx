@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ListChecks, LayoutGrid, Plus, X, Search, CircleDashed, Loader2, CheckCircle2 } from "lucide-react";
+import { ListChecks, LayoutGrid, Plus, X, Search, CircleDashed, Loader2, CheckCircle2, RotateCcw } from "lucide-react";
 import type { Task, TaskStatus, TaskPriority, Client } from "@/lib/types";
 import { defaultTasks, tasksByClient } from "@/lib/mock-data";
+import { usePersistedState } from "@/lib/use-persisted-state";
 
 interface Props { client: Client }
+
+const TASKS_KEY = (clientId: string) => `tasks:${clientId}`;
 
 type ViewMode = "list" | "board";
 
@@ -56,7 +59,8 @@ function TaskCard({ task, onStatusChange, onRemove }: { task: Task; onStatusChan
 }
 
 export default function TaskManager({ client }: Props) {
-  const [tasks, setTasks] = useState<Task[]>(tasksByClient[client.id] ?? defaultTasks);
+  const seed = tasksByClient[client.id] ?? defaultTasks;
+  const [tasks, setTasks] = usePersistedState<Task[]>(TASKS_KEY(client.id), seed);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [filterStatus, setFilterStatus] = useState<TaskStatus | "All">("All");
   const [search, setSearch] = useState("");
@@ -113,12 +117,25 @@ export default function TaskManager({ client }: Props) {
           <h1 className="text-2xl font-bold text-text-primary">Tasks</h1>
           <p className="text-sm text-text-secondary mt-1">{client.name} · Launch tasks &amp; deliverables</p>
         </div>
-        <button
-          onClick={() => setShowAddForm(true)}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-purple text-white text-sm font-medium hover:bg-purple-light transition-colors cursor-pointer shadow-sm"
-        >
-          <Plus className="w-4 h-4" /> New Task
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (confirm("Reset tasks to the original launch list? This will wipe your edits for this client.")) {
+                setTasks(seed);
+              }
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-text-muted hover:text-text-secondary hover:bg-bg-elevated text-xs cursor-pointer"
+            title="Reset to default launch tasks"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> Reset
+          </button>
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-purple text-white text-sm font-medium hover:bg-purple-light transition-colors cursor-pointer shadow-sm"
+          >
+            <Plus className="w-4 h-4" /> New Task
+          </button>
+        </div>
       </div>
 
       {/* Status count cards */}
