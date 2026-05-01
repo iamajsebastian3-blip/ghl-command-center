@@ -44,5 +44,6 @@ next-env.d.ts
 /preview_*.png
 /screenshot*.png
 /test_screenshot.py
+/preview_shots.py
 
 .vercel

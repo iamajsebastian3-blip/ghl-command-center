@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, ChangeEvent } from "react";
+import { useState, useRef, ChangeEvent, useTransition } from "react";
 import {
   ListChecks,
   LayoutGrid,
@@ -19,14 +19,19 @@ import {
   ExternalLink,
 } from "lucide-react";
 import type { Task, TaskStatus, TaskPriority, Client, TaskComment, CommentAttachment, CommentAuthor } from "@/lib/types";
-import { defaultTasks, tasksByClient } from "@/lib/mock-data";
-import { usePersistedState } from "@/lib/use-persisted-state";
+import { useTasks } from "@/lib/hooks/use-tasks";
+import { useTaskComments } from "@/lib/hooks/use-task-comments";
+import {
+  createTaskAction,
+  updateTaskStatusAction,
+  deleteTaskAction,
+  deleteAllTasksAction,
+} from "@/app/actions/tasks";
+import { addCommentAction, addClientCommentAction, deleteCommentAction } from "@/app/actions/comments";
 
-interface Props { client: Client }
+interface Props { client: Client; readOnly?: boolean; clientMode?: boolean; slug?: string }
 
-const TASKS_KEY = (clientId: string) => `tasks:${clientId}`;
-const COMMENTS_KEY = (clientId: string) => `task-comments:${clientId}`;
-const MAX_IMAGE_BYTES = 1.5 * 1024 * 1024; // 1.5 MB
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB — uploads go to Supabase Storage
 
 type ViewMode = "list" | "board";
 
@@ -94,7 +99,7 @@ function AttachmentDisplay({ attachment }: { attachment: CommentAttachment }) {
   );
 }
 
-function CommentItem({ comment, onRemove }: { comment: TaskComment; onRemove: () => void }) {
+function CommentItem({ comment, onRemove, canDelete }: { comment: TaskComment; onRemove: () => void; canDelete?: boolean }) {
   const isYou = comment.author === "you";
   return (
     <div className="card p-3 group">
@@ -116,32 +121,46 @@ function CommentItem({ comment, onRemove }: { comment: TaskComment; onRemove: ()
             </div>
           )}
         </div>
-        <button
-          onClick={onRemove}
-          className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-yellow transition-all cursor-pointer shrink-0"
-          title="Delete comment"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+        {canDelete && (
+          <button
+            onClick={onRemove}
+            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-yellow transition-all cursor-pointer shrink-0"
+            title="Delete comment"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
+type CommentsMode = "owner" | "client" | "view";
+
 interface CommentsPanelProps {
   taskId: string;
   comments: TaskComment[];
-  onAdd: (c: TaskComment) => void;
-  onRemove: (id: string) => void;
+  onDeleted: (id: string) => void;
+  mode: CommentsMode;
+  slug?: string;
 }
 
-function CommentsPanel({ taskId, comments, onAdd, onRemove }: CommentsPanelProps) {
-  const [author, setAuthor] = useState<CommentAuthor>("you");
+interface PendingUrl { id: string; url: string }
+interface PendingImage { id: string; file: File; previewUrl: string }
+
+function CommentsPanel({ taskId, comments, onDeleted, mode, slug }: CommentsPanelProps) {
+  const isOwner = mode === "owner";
+  const isClient = mode === "client";
+  const canCompose = isOwner || isClient;
+  const canDelete = isOwner;
+  const [author, setAuthor] = useState<CommentAuthor>(isClient ? "client" : "you");
   const [body, setBody] = useState("");
   const [urlInput, setUrlInput] = useState("");
   const [showUrlInput, setShowUrlInput] = useState(false);
-  const [pending, setPending] = useState<CommentAttachment[]>([]);
+  const [pendingUrls, setPendingUrls] = useState<PendingUrl[]>([]);
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [uploadError, setUploadError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sorted = [...comments].sort((a, b) => a.createdAt - b.createdAt);
@@ -149,7 +168,7 @@ function CommentsPanel({ taskId, comments, onAdd, onRemove }: CommentsPanelProps
   const addUrl = () => {
     const v = urlInput.trim();
     if (!v) return;
-    setPending((prev) => [...prev, { id: `att-${Date.now()}`, type: "url", url: v }]);
+    setPendingUrls((prev) => [...prev, { id: `u-${Date.now()}`, url: v }]);
     setUrlInput("");
     setShowUrlInput(false);
   };
@@ -163,56 +182,79 @@ function CommentsPanel({ taskId, comments, onAdd, onRemove }: CommentsPanelProps
       return;
     }
     if (file.size > MAX_IMAGE_BYTES) {
-      setUploadError(`Image is ${(file.size / 1024 / 1024).toFixed(1)} MB — keep it under 1.5 MB so it fits in browser storage.`);
+      setUploadError(`Image is ${(file.size / 1024 / 1024).toFixed(1)} MB — keep it under 5 MB.`);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setPending((prev) => [
-        ...prev,
-        {
-          id: `att-${Date.now()}`,
-          type: "image",
-          url: dataUrl,
-          filename: file.name,
-          size: file.size,
-          mimeType: file.type,
-        },
-      ]);
-    };
-    reader.onerror = () => setUploadError("Couldn't read that file.");
-    reader.readAsDataURL(file);
+    const previewUrl = URL.createObjectURL(file);
+    setPendingImages((prev) => [...prev, { id: `i-${Date.now()}`, file, previewUrl }]);
     e.target.value = "";
   };
 
-  const submit = () => {
-    if (!body.trim() && pending.length === 0) return;
-    onAdd({
-      id: `c-${Date.now()}`,
-      taskId,
-      author,
-      body: body.trim(),
-      createdAt: Date.now(),
-      attachments: pending,
+  const removePendingUrl = (id: string) => setPendingUrls((prev) => prev.filter((p) => p.id !== id));
+  const removePendingImage = (id: string) =>
+    setPendingImages((prev) => {
+      const out = prev.filter((p) => p.id !== id);
+      const removed = prev.find((p) => p.id === id);
+      if (removed) URL.revokeObjectURL(removed.previewUrl);
+      return out;
     });
-    setBody("");
-    setPending([]);
+
+  const submit = async () => {
+    if (submitting) return;
+    if (!body.trim() && pendingUrls.length === 0 && pendingImages.length === 0) return;
+    setSubmitting(true);
     setUploadError("");
+
+    const fd = new FormData();
+    fd.set("taskId", taskId);
+    fd.set("body", body.trim());
+    fd.set("urls", JSON.stringify(pendingUrls.map(({ url }) => ({ url }))));
+    pendingImages.forEach(({ file }) => fd.append("files", file));
+
+    let result: { ok: true } | { ok: false; error: string };
+    if (isClient) {
+      if (!slug) {
+        setSubmitting(false);
+        setUploadError("Missing client slug — cannot post comment.");
+        return;
+      }
+      fd.set("slug", slug);
+      result = await addClientCommentAction(fd);
+    } else {
+      fd.set("author", author);
+      result = await addCommentAction(fd);
+    }
+    setSubmitting(false);
+    if (!result.ok) {
+      setUploadError(result.error);
+      return;
+    }
+    pendingImages.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+    setBody("");
+    setPendingUrls([]);
+    setPendingImages([]);
+  };
+
+  const onDeleteComment = async (id: string) => {
+    const result = await deleteCommentAction(id);
+    if (result.ok) onDeleted(id);
   };
 
   return (
     <div className="bg-bg-surface px-5 py-4 border-t border-border-subtle">
-      {sorted.length > 0 && (
+      {sorted.length > 0 ? (
         <div className="space-y-2 mb-3">
           {sorted.map((c) => (
-            <CommentItem key={c.id} comment={c} onRemove={() => onRemove(c.id)} />
+            <CommentItem key={c.id} comment={c} onRemove={() => onDeleteComment(c.id)} canDelete={canDelete} />
           ))}
         </div>
-      )}
+      ) : !canCompose ? (
+        <p className="text-xs text-text-muted">No comments yet.</p>
+      ) : null}
 
-      {/* Composer */}
+      {!canCompose ? null : (
       <div className="card p-3" onClick={(e) => e.stopPropagation()}>
+        {isOwner && (
         <div className="flex items-center gap-2 mb-2">
           <span className="text-xs text-text-muted">Posting as</span>
           <button
@@ -228,31 +270,49 @@ function CommentsPanel({ taskId, comments, onAdd, onRemove }: CommentsPanelProps
             Client (Lish)
           </button>
         </div>
+        )}
+        {isClient && (
+        <div className="flex items-center gap-2 mb-2">
+          <span className="badge bg-yellow-soft text-yellow">Posting as Client (Lish)</span>
+        </div>
+        )}
 
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
           placeholder={
-            comments.length === 0
-              ? "Add the first comment, feedback, or progress note for this task..."
-              : "Add a comment..."
+            isClient
+              ? (comments.length === 0
+                  ? "Leave feedback or notes on this task..."
+                  : "Reply with feedback...")
+              : (comments.length === 0
+                  ? "Add the first comment, feedback, or progress note for this task..."
+                  : "Add a comment...")
           }
           className="w-full bg-bg-card border border-border-subtle rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-purple/40 resize-none"
           rows={2}
         />
 
-        {pending.length > 0 && (
+        {(pendingUrls.length > 0 || pendingImages.length > 0) && (
           <div className="flex flex-wrap gap-2 mt-2">
-            {pending.map((a) => (
-              <div key={a.id} className="bg-bg-elevated rounded-lg p-1.5 pr-2 flex items-center gap-2 text-xs border border-border-subtle">
-                {a.type === "image" ? (
-                  <img src={a.url} alt="" className="w-9 h-9 rounded object-cover" />
-                ) : (
-                  <Link2 className="w-4 h-4 text-purple ml-1" />
-                )}
-                <span className="max-w-[180px] truncate text-text-secondary">{a.filename || a.url}</span>
+            {pendingImages.map((p) => (
+              <div key={p.id} className="bg-bg-elevated rounded-lg p-1.5 pr-2 flex items-center gap-2 text-xs border border-border-subtle">
+                <img src={p.previewUrl} alt="" className="w-9 h-9 rounded object-cover" />
+                <span className="max-w-[180px] truncate text-text-secondary">{p.file.name}</span>
                 <button
-                  onClick={() => setPending((prev) => prev.filter((p) => p.id !== a.id))}
+                  onClick={() => removePendingImage(p.id)}
+                  className="text-text-muted hover:text-yellow cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+            {pendingUrls.map((p) => (
+              <div key={p.id} className="bg-bg-elevated rounded-lg p-1.5 pr-2 flex items-center gap-2 text-xs border border-border-subtle">
+                <Link2 className="w-4 h-4 text-purple ml-1" />
+                <span className="max-w-[180px] truncate text-text-secondary">{p.url}</span>
+                <button
+                  onClick={() => removePendingUrl(p.id)}
                   className="text-text-muted hover:text-yellow cursor-pointer"
                 >
                   <X className="w-3 h-3" />
@@ -294,26 +354,29 @@ function CommentsPanel({ taskId, comments, onAdd, onRemove }: CommentsPanelProps
           </button>
           <button
             onClick={submit}
-            disabled={!body.trim() && pending.length === 0}
+            disabled={submitting || (!body.trim() && pendingUrls.length === 0 && pendingImages.length === 0)}
             className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple text-white text-xs font-medium hover:bg-purple-light cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Send className="w-3.5 h-3.5" /> Post comment
+            {submitting ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Posting…</> : <><Send className="w-3.5 h-3.5" /> Post comment</>}
           </button>
         </div>
         {uploadError && <p className="text-xs text-yellow mt-2">{uploadError}</p>}
       </div>
+      )}
     </div>
   );
 }
 
-function TaskCard({ task, onStatusChange, onRemove, commentCount }: { task: Task; onStatusChange: (id: string, s: TaskStatus) => void; onRemove: (id: string) => void; commentCount: number }) {
+function TaskCard({ task, onStatusChange, onRemove, commentCount, readOnly }: { task: Task; onStatusChange: (id: string, s: TaskStatus) => void; onRemove: (id: string) => void; commentCount: number; readOnly?: boolean }) {
   return (
     <div className="card p-4 group">
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium text-text-primary">{task.name}</p>
-        <button onClick={() => onRemove(task.id)} className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-yellow transition-all cursor-pointer shrink-0">
-          <X className="w-3.5 h-3.5" />
-        </button>
+        {!readOnly && (
+          <button onClick={() => onRemove(task.id)} className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-yellow transition-all cursor-pointer shrink-0">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
       <div className="mt-3 flex items-center gap-2 flex-wrap">
         <span className={`badge ${priorityColors[task.priority]}`}>{task.priority}</span>
@@ -327,11 +390,12 @@ function TaskCard({ task, onStatusChange, onRemove, commentCount }: { task: Task
         {statusColumns.map((status) => (
           <button
             key={status}
-            onClick={() => onStatusChange(task.id, status)}
-            className={`flex-1 text-[10px] font-medium py-1.5 rounded-md transition-colors cursor-pointer ${
+            onClick={() => !readOnly && onStatusChange(task.id, status)}
+            disabled={readOnly}
+            className={`flex-1 text-[10px] font-medium py-1.5 rounded-md transition-colors ${readOnly ? "cursor-default" : "cursor-pointer"} ${
               task.status === status
                 ? statusStyle[status].pill
-                : "text-text-muted hover:bg-bg-elevated"
+                : `text-text-muted ${readOnly ? "" : "hover:bg-bg-elevated"}`
             }`}
           >
             {status}
@@ -342,10 +406,12 @@ function TaskCard({ task, onStatusChange, onRemove, commentCount }: { task: Task
   );
 }
 
-export default function TaskManager({ client }: Props) {
-  const seed = tasksByClient[client.id] ?? defaultTasks;
-  const [tasks, setTasks] = usePersistedState<Task[]>(TASKS_KEY(client.id), seed);
-  const [comments, setComments] = usePersistedState<TaskComment[]>(COMMENTS_KEY(client.id), []);
+export default function TaskManager({ client, readOnly: readOnlyProp = false, clientMode = false, slug }: Props) {
+  // In clientMode, tasks themselves are still read-only — only commenting is allowed.
+  const readOnly = readOnlyProp || clientMode;
+  const commentsMode: CommentsMode = clientMode ? "client" : (readOnlyProp ? "view" : "owner");
+  const { tasks, loading, error: loadError } = useTasks(client.id);
+  const { comments } = useTaskComments(client.id);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [filterStatus, setFilterStatus] = useState<TaskStatus | "All">("All");
   const [search, setSearch] = useState("");
@@ -354,14 +420,26 @@ export default function TaskManager({ client }: Props) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTaskName, setNewTaskName] = useState("");
   const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("Medium");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
 
   const handleStatusChange = (id: string, status: TaskStatus) => {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)));
+    if (readOnly) return;
+    setActionError(null);
+    startTransition(async () => {
+      const result = await updateTaskStatusAction(id, status);
+      if (!result.ok) setActionError(result.error);
+    });
   };
 
   const removeTask = (id: string) => {
-    setTasks((prev) => prev.filter((t) => t.id !== id));
-    setComments((prev) => prev.filter((c) => c.taskId !== id));
+    if (readOnly) return;
+    setActionError(null);
+    startTransition(async () => {
+      const result = await deleteTaskAction(id);
+      if (!result.ok) setActionError(result.error);
+    });
+    // Comments cascade-delete in DB via foreign key.
     setExpanded((prev) => {
       const next = new Set(prev);
       next.delete(id);
@@ -370,16 +448,31 @@ export default function TaskManager({ client }: Props) {
   };
 
   const addTask = () => {
-    if (!newTaskName.trim()) return;
-    const newTask: Task = {
-      id: `t${Date.now()}`,
-      name: newTaskName.trim(),
-      status: "To Do",
-      priority: newTaskPriority,
-    };
-    setTasks((prev) => [newTask, ...prev]);
+    if (readOnly) return;
+    const name = newTaskName.trim();
+    if (!name) return;
+    setActionError(null);
+    startTransition(async () => {
+      const result = await createTaskAction({
+        clientId: client.id,
+        name,
+        priority: newTaskPriority,
+      });
+      if (!result.ok) setActionError(result.error);
+    });
     setNewTaskName("");
     setShowAddForm(false);
+  };
+
+  const resetAll = () => {
+    if (readOnly) return;
+    if (!confirm("Delete all tasks AND comments for this client? This cannot be undone.")) return;
+    setActionError(null);
+    startTransition(async () => {
+      const result = await deleteAllTasksAction(client.id);
+      if (!result.ok) setActionError(result.error);
+    });
+    setExpanded(new Set());
   };
 
   const toggleExpand = (id: string) => {
@@ -390,9 +483,6 @@ export default function TaskManager({ client }: Props) {
       return next;
     });
   };
-
-  const addComment = (c: TaskComment) => setComments((prev) => [...prev, c]);
-  const removeComment = (id: string) => setComments((prev) => prev.filter((c) => c.id !== id));
 
   const counts = {
     All: tasks.length,
@@ -423,28 +513,36 @@ export default function TaskManager({ client }: Props) {
           <h1 className="text-2xl font-bold text-text-primary">Tasks</h1>
           <p className="text-sm text-text-secondary mt-1">{client.name} · Launch tasks &amp; deliverables</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              if (confirm("Reset tasks AND comments to the original launch list? This will wipe your edits and all comments for this client.")) {
-                setTasks(seed);
-                setComments([]);
-                setExpanded(new Set());
-              }
-            }}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-text-muted hover:text-text-secondary hover:bg-bg-elevated text-xs cursor-pointer"
-            title="Reset to default launch tasks"
-          >
-            <RotateCcw className="w-3.5 h-3.5" /> Reset
-          </button>
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-purple text-white text-sm font-medium hover:bg-purple-light transition-colors cursor-pointer shadow-sm"
-          >
-            <Plus className="w-4 h-4" /> New Task
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={resetAll}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-text-muted hover:text-text-secondary hover:bg-bg-elevated text-xs cursor-pointer"
+              title="Delete all tasks for this client"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Reset
+            </button>
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-purple text-white text-sm font-medium hover:bg-purple-light transition-colors cursor-pointer shadow-sm"
+            >
+              <Plus className="w-4 h-4" /> New Task
+            </button>
+          </div>
+        )}
       </div>
+
+      {(loadError || actionError) && (
+        <div className="card p-3 border border-red-500/30 bg-red-500/5">
+          <p className="text-xs text-red-500">{loadError || actionError}</p>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-5 h-5 text-purple animate-spin" />
+        </div>
+      )}
 
       {/* Status count cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 animate-in opacity-0 animate-delay-1">
@@ -468,7 +566,7 @@ export default function TaskManager({ client }: Props) {
       </div>
 
       {/* Add Task Form */}
-      {showAddForm && (
+      {showAddForm && !readOnly && (
         <div className="card p-4 border-l-4 border-l-purple animate-in opacity-0">
           <div className="flex items-center gap-3 flex-wrap">
             <input
@@ -557,29 +655,38 @@ export default function TaskManager({ client }: Props) {
                       <span className={`badge ${priorityColors[task.priority]}`}>{task.priority}</span>
                     </div>
                     <div className="w-32" onClick={(e) => e.stopPropagation()}>
-                      <select
-                        value={task.status}
-                        onChange={(e) => handleStatusChange(task.id, e.target.value as TaskStatus)}
-                        className={`badge cursor-pointer border-0 outline-none focus:outline-none w-full ${statusStyle[task.status].pill}`}
-                      >
-                        {statusColumns.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                      {readOnly ? (
+                        <span className={`badge inline-flex w-full ${statusStyle[task.status].pill}`}>{task.status}</span>
+                      ) : (
+                        <select
+                          value={task.status}
+                          onChange={(e) => handleStatusChange(task.id, e.target.value as TaskStatus)}
+                          className={`badge cursor-pointer border-0 outline-none focus:outline-none w-full ${statusStyle[task.status].pill}`}
+                        >
+                          {statusColumns.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      )}
                     </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); removeTask(task.id); }}
-                      className="w-6 text-text-muted opacity-0 group-hover:opacity-100 hover:text-yellow transition-all cursor-pointer"
-                      title="Delete task"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+                    {readOnly ? (
+                      <span className="w-6" />
+                    ) : (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeTask(task.id); }}
+                        className="w-6 text-text-muted opacity-0 group-hover:opacity-100 hover:text-yellow transition-all cursor-pointer"
+                        title="Delete task"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
 
                   {isExpanded && (
                     <CommentsPanel
                       taskId={task.id}
                       comments={taskComments}
-                      onAdd={addComment}
-                      onRemove={removeComment}
+                      onDeleted={() => { /* realtime subscription will refresh */ }}
+                      mode={commentsMode}
+                      slug={slug}
                     />
                   )}
                 </div>
@@ -610,6 +717,7 @@ export default function TaskManager({ client }: Props) {
                       onStatusChange={handleStatusChange}
                       onRemove={removeTask}
                       commentCount={commentCountFor(task.id)}
+                      readOnly={readOnly}
                     />
                   ))}
                   {cols.length === 0 && <div className="card p-8 text-center"><p className="text-xs text-text-muted">No tasks</p></div>}
