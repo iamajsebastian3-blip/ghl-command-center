@@ -19,16 +19,12 @@ export interface Client {
 
 export type TaskStatus = "To Do" | "In Progress" | "Done";
 export type TaskPriority = "Low" | "Medium" | "High" | "Urgent";
-export type TaskTag = "Brand" | "Web" | "Content" | "Outreach" | "Ops";
 
 export interface Task {
   id: string;
   name: string;
-  assignedTo: string;
   status: TaskStatus;
   priority: TaskPriority;
-  dueDate: string;
-  tags: TaskTag[];
 }
 
 export interface DailyLog {

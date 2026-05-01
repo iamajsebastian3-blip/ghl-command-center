@@ -14,6 +14,9 @@ import {
   History,
   Trash2,
   Calendar,
+  Plus,
+  LogIn,
+  LogOut,
 } from "lucide-react";
 import { defaultDailyLog, dailyLogByClient } from "@/lib/mock-data";
 import type { Client } from "@/lib/types";
@@ -86,6 +89,13 @@ export default function DailyOps({ client }: Props) {
   const [history, setHistory] = useState<StoredSession[]>([]);
   const [showAllHistory, setShowAllHistory] = useState(false);
 
+  // Manual entry form
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [manualDate, setManualDate] = useState(todayKey());
+  const [manualLogin, setManualLogin] = useState("");
+  const [manualLogout, setManualLogout] = useState("");
+  const [manualError, setManualError] = useState("");
+
   // Hydrate history on client mount + when client changes.
   useEffect(() => {
     setHistory(loadHistory(client.id));
@@ -143,6 +153,41 @@ export default function DailyOps({ client }: Props) {
       saveHistory(client.id, next);
       return next;
     });
+  };
+
+  const addManualEntry = () => {
+    setManualError("");
+    if (!manualDate || !manualLogin || !manualLogout) {
+      setManualError("Fill in date, login, and logout times.");
+      return;
+    }
+    const startDt = new Date(`${manualDate}T${manualLogin}`);
+    const endDt = new Date(`${manualDate}T${manualLogout}`);
+    if (Number.isNaN(startDt.getTime()) || Number.isNaN(endDt.getTime())) {
+      setManualError("Couldn't read those times — try again.");
+      return;
+    }
+    const seconds = Math.floor((endDt.getTime() - startDt.getTime()) / 1000);
+    if (seconds <= 0) {
+      setManualError("Logout must be after login.");
+      return;
+    }
+    const entry: StoredSession = {
+      id: `s-${Date.now()}`,
+      date: manualDate,
+      start: startDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }),
+      end: endDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }),
+      startEpoch: startDt.getTime(),
+      seconds,
+    };
+    setHistory((prev) => {
+      const next = [entry, ...prev];
+      saveHistory(client.id, next);
+      return next;
+    });
+    setManualLogin("");
+    setManualLogout("");
+    setShowManualForm(false);
   };
 
   useEffect(() => {
@@ -274,6 +319,63 @@ export default function DailyOps({ client }: Props) {
               <p className="text-sm font-semibold text-text-primary">{timerState === "stopped" ? log.timeOut : "—"}</p>
             </div>
           </div>
+        </div>
+
+        {/* Manual entry */}
+        <div className="mt-4 pt-4 border-t border-border-subtle">
+          {!showManualForm ? (
+            <button onClick={() => { setShowManualForm(true); setManualError(""); }} className="text-xs text-purple hover:text-purple-light flex items-center gap-1.5 cursor-pointer font-medium">
+              <Plus className="w-3.5 h-3.5" /> Add manual entry (login / logout)
+            </button>
+          ) : (
+            <div>
+              <p className="text-xs text-text-muted mb-2">Log a session manually — useful for backlog days you forgot to time-track.</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-text-muted" />
+                  <input
+                    type="date"
+                    value={manualDate}
+                    max={todayKey()}
+                    onChange={(e) => setManualDate(e.target.value)}
+                    className="bg-bg-surface border border-border-subtle rounded-lg px-2.5 py-2 text-xs text-text-primary focus:outline-none focus:border-purple/40"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <LogIn className="w-3.5 h-3.5 text-green" />
+                  <input
+                    type="time"
+                    value={manualLogin}
+                    onChange={(e) => setManualLogin(e.target.value)}
+                    className="bg-bg-surface border border-border-subtle rounded-lg px-2.5 py-2 text-xs text-text-primary focus:outline-none focus:border-purple/40"
+                  />
+                </div>
+                <span className="text-text-muted text-xs">→</span>
+                <div className="flex items-center gap-1.5">
+                  <LogOut className="w-3.5 h-3.5 text-purple" />
+                  <input
+                    type="time"
+                    value={manualLogout}
+                    onChange={(e) => setManualLogout(e.target.value)}
+                    className="bg-bg-surface border border-border-subtle rounded-lg px-2.5 py-2 text-xs text-text-primary focus:outline-none focus:border-purple/40"
+                  />
+                </div>
+                <button
+                  onClick={addManualEntry}
+                  className="px-3 py-2 rounded-lg bg-purple text-white text-xs font-medium hover:bg-purple-light transition-colors cursor-pointer"
+                >
+                  Save entry
+                </button>
+                <button
+                  onClick={() => { setShowManualForm(false); setManualError(""); }}
+                  className="p-2 rounded-lg text-text-muted hover:text-text-secondary cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              {manualError && <p className="text-xs text-yellow mt-2">{manualError}</p>}
+            </div>
+          )}
         </div>
       </div>
 

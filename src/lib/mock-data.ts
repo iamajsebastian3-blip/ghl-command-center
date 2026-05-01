@@ -190,18 +190,18 @@ export const defaultTasks: Task[] = [];
 
 export const tasksByClient: Record<string, Task[]> = {
   lish: [
-    { id: "lt1", name: "Add coach profiles section to landing page", assignedTo: "AJ", status: "In Progress", priority: "High", dueDate: "2026-04-20", tags: ["Web", "Brand"] },
-    { id: "lt2", name: "Build inquiry / join form", assignedTo: "AJ", status: "To Do", priority: "High", dueDate: "2026-04-20", tags: ["Web", "Ops"] },
-    { id: "lt3", name: "Set up Coach Circle PH social pages", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-04-22", tags: ["Brand"] },
-    { id: "lt4", name: "Prepare visual branding pack for launch", assignedTo: "AJ", status: "In Progress", priority: "High", dueDate: "2026-04-25", tags: ["Brand"] },
-    { id: "lt5", name: "Reach out personally to 10 priority coaches", assignedTo: "Lish", status: "In Progress", priority: "Urgent", dueDate: "2026-04-26", tags: ["Outreach"] },
-    { id: "lt6", name: "Collect bios + headshots from founding coaches", assignedTo: "Lish", status: "To Do", priority: "High", dueDate: "2026-04-29", tags: ["Outreach"] },
-    { id: "lt7", name: "Draft teaser content + launch countdown", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-05-02", tags: ["Content", "Brand"] },
-    { id: "lt8", name: "Build email waitlist with welcome sequence", assignedTo: "AJ", status: "To Do", priority: "Medium", dueDate: "2026-05-05", tags: ["Ops"] },
-    { id: "lt9", name: "Finalize launch event flow and run-of-show", assignedTo: "AJ", status: "To Do", priority: "High", dueDate: "2026-05-13", tags: ["Ops", "Outreach"] },
-    { id: "lt10", name: "Brand message & one-liner finalized", assignedTo: "Lish", status: "Done", priority: "High", dueDate: "2026-04-12", tags: ["Brand"] },
-    { id: "lt11", name: "Define Coach Circle PH offer + structure", assignedTo: "Lish", status: "Done", priority: "High", dueDate: "2026-04-12", tags: ["Brand"] },
-    { id: "lt12", name: "Lock landing page hero copy", assignedTo: "AJ", status: "Done", priority: "Medium", dueDate: "2026-04-18", tags: ["Content"] },
+    { id: "lt1", name: "Add coach profiles section to landing page",     status: "In Progress", priority: "High" },
+    { id: "lt2", name: "Build inquiry / join form",                       status: "To Do",       priority: "High" },
+    { id: "lt3", name: "Set up Coach Circle PH social pages",             status: "To Do",       priority: "Medium" },
+    { id: "lt4", name: "Prepare visual branding pack for launch",         status: "In Progress", priority: "High" },
+    { id: "lt5", name: "Reach out personally to 10 priority coaches",     status: "In Progress", priority: "Urgent" },
+    { id: "lt6", name: "Collect bios + headshots from founding coaches",  status: "To Do",       priority: "High" },
+    { id: "lt7", name: "Draft teaser content + launch countdown",         status: "To Do",       priority: "Medium" },
+    { id: "lt8", name: "Build email waitlist with welcome sequence",      status: "To Do",       priority: "Medium" },
+    { id: "lt9", name: "Finalize launch event flow and run-of-show",      status: "To Do",       priority: "High" },
+    { id: "lt10", name: "Brand message & one-liner finalized",            status: "Done",        priority: "High" },
+    { id: "lt11", name: "Define Coach Circle PH offer + structure",       status: "Done",        priority: "High" },
+    { id: "lt12", name: "Lock landing page hero copy",                    status: "Done",        priority: "Medium" },
   ],
 };
 
