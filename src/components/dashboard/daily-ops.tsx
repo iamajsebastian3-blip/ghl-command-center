@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react";
 import {
   Clock,
   CheckCircle2,
@@ -17,9 +17,11 @@ import {
   Plus,
   LogIn,
   LogOut,
+  Printer,
 } from "lucide-react";
 import { defaultDailyLog, dailyLogByClient } from "@/lib/mock-data";
-import type { Client } from "@/lib/types";
+import type { Client, DailyLog } from "@/lib/types";
+import { usePersistedState } from "@/lib/use-persisted-state";
 
 interface Props { client: Client }
 
@@ -75,7 +77,8 @@ function saveHistory(clientId: string, history: StoredSession[]) {
 }
 
 export default function DailyOps({ client }: Props) {
-  const [log, setLog] = useState(dailyLogByClient[client.id] ?? defaultDailyLog);
+  const seedLog = dailyLogByClient[client.id] ?? defaultDailyLog;
+  const [log, setLog] = usePersistedState<DailyLog>(`daily-log:${client.id}`, seedLog);
   const [newItem, setNewItem] = useState({ field: "", value: "" });
 
   // Timer state
@@ -243,7 +246,89 @@ export default function DailyOps({ client }: Props) {
     { key: "nextDayPlan", label: "Next Day Plan", icon: BookOpen, color: "text-purple-light", dotColor: "bg-purple-light", emptyText: "Plan not set yet" },
   ];
 
+  // Total seconds across all logged history (for the printable timesheet footer)
+  const totalAllSeconds = history.reduce((sum, s) => sum + s.seconds, 0);
+  const generatedAt = new Date().toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
+  const periodStart = grouped.length > 0 ? grouped[grouped.length - 1].date : null;
+  const periodEnd = grouped.length > 0 ? grouped[0].date : null;
+  const periodLabel = periodStart && periodEnd
+    ? (periodStart === periodEnd
+        ? new Date(periodStart + "T00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+        : `${new Date(periodStart + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${new Date(periodEnd + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`)
+    : "—";
+
   return (
+    <>
+      {/* Hidden printable timesheet — visible only in browser print dialog */}
+      <div className="print-timesheet">
+        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: "16px", borderBottom: "2px solid #6366F1" }}>
+          <div>
+            <h1>Timesheet</h1>
+            <h2>{client.company} · {client.name}</h2>
+            <p style={{ fontSize: "11px", color: "#94A3B8", margin: "4px 0 0 0" }}>Period: {periodLabel}</p>
+          </div>
+          <div style={{ textAlign: "right", fontSize: "10px", color: "#475569" }}>
+            <p style={{ margin: 0, fontWeight: 600 }}>Service Provider</p>
+            <p style={{ margin: "2px 0 0 0" }}>System-BuiltBy AJ</p>
+            <p style={{ margin: "8px 0 0 0", fontSize: "9px", color: "#94A3B8" }}>Generated {generatedAt}</p>
+          </div>
+        </header>
+
+        {history.length === 0 ? (
+          <p style={{ marginTop: "30px", color: "#94A3B8", fontSize: "12px" }}>No sessions logged.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Login</th>
+                <th>Logout</th>
+                <th style={{ textAlign: "right" }}>Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {grouped.slice().reverse().map((g) => {
+                const dateLabel = new Date(g.date + "T00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+                return (
+                  <Fragment key={g.date}>
+                    <tr className="day-row">
+                      <td colSpan={3}>{dateLabel}</td>
+                      <td style={{ textAlign: "right" }}>{formatMinutes(g.total)}</td>
+                    </tr>
+                    {g.sessions.slice().reverse().map((s) => (
+                      <tr key={s.id}>
+                        <td style={{ paddingLeft: "20px", color: "#94A3B8" }}>session</td>
+                        <td>{s.start}</td>
+                        <td>{s.end}</td>
+                        <td style={{ textAlign: "right" }}>{formatMinutes(s.seconds)}</td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        <div className="totals">
+          <span>{history.length} {history.length === 1 ? "session" : "sessions"} across {grouped.length} {grouped.length === 1 ? "day" : "days"}</span>
+          <span>Total: <strong>{formatMinutes(totalAllSeconds)}</strong></span>
+        </div>
+
+        <div className="signature">
+          <div className="sig-block">
+            <span style={{ fontWeight: 600 }}>Service provider</span><br />
+            System-BuiltBy AJ — Date: ________________
+          </div>
+          <div className="sig-block">
+            <span style={{ fontWeight: 600 }}>Client approval</span><br />
+            {client.name} — Date: ________________
+          </div>
+        </div>
+
+        <div className="footer">Generated by GHL Command Center · {generatedAt}</div>
+      </div>
+
     <div className="space-y-6">
       <div className="animate-in opacity-0">
         <h1 className="text-2xl font-bold text-text-primary">Daily Operations</h1>
@@ -386,11 +471,21 @@ export default function DailyOps({ client }: Props) {
             <History className="w-4 h-4 text-purple" /> Session History
             <span className="text-xs text-text-muted font-normal">({history.length} {history.length === 1 ? "session" : "sessions"} logged)</span>
           </h2>
-          {grouped.length > 5 && (
-            <button onClick={() => setShowAllHistory((v) => !v)} className="text-xs text-purple hover:text-purple-light cursor-pointer font-medium">
-              {showAllHistory ? "Show recent" : `Show all ${grouped.length} days`}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => window.print()}
+              disabled={history.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple text-white text-xs font-medium hover:bg-purple-light transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+              title="Open the print dialog with a clean timesheet — pick 'Save as PDF'"
+            >
+              <Printer className="w-3.5 h-3.5" /> Export PDF
             </button>
-          )}
+            {grouped.length > 5 && (
+              <button onClick={() => setShowAllHistory((v) => !v)} className="text-xs text-purple hover:text-purple-light cursor-pointer font-medium">
+                {showAllHistory ? "Show recent" : `Show all ${grouped.length} days`}
+              </button>
+            )}
+          </div>
         </div>
 
         {history.length === 0 ? (
@@ -478,5 +573,6 @@ export default function DailyOps({ client }: Props) {
         ))}
       </div>
     </div>
+    </>
   );
 }

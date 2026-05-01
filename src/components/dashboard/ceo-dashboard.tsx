@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import type { Client, MilestoneStatus, Milestone } from "@/lib/types";
 import { milestonesByClient } from "@/lib/mock-data";
+import { usePersistedState } from "@/lib/use-persisted-state";
 
 interface Props { client: Client }
 
@@ -176,9 +177,9 @@ function MilestoneRow({ milestone, expanded, onToggleExpand, onToggleStep }: {
 }
 
 function MilestoneOverview({ client }: { client: Client }) {
-  const initial = milestonesByClient[client.id] ?? [];
-  const [milestones, setMilestones] = useState(initial);
-  const [expanded, setExpanded] = useState<string | null>(initial[1]?.id ?? null);
+  const seed = milestonesByClient[client.id] ?? [];
+  const [milestones, setMilestones] = usePersistedState<Milestone[]>(`milestones:${client.id}`, seed);
+  const [expanded, setExpanded] = useState<string | null>(seed[1]?.id ?? null);
   const [sessions, setSessions] = useState<StoredSession[]>([]);
 
   useEffect(() => {

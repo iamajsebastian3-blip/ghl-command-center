@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import type { Client, FileItem, FileCategory } from "@/lib/types";
 import { filesByClient } from "@/lib/mock-data";
+import { usePersistedState } from "@/lib/use-persisted-state";
 
 interface Props { client: Client }
 
@@ -108,7 +109,8 @@ function FileCard({ file, onRemove, viewMode }: { file: FileItem; onRemove: (id:
 }
 
 export default function Files({ client }: Props) {
-  const [files, setFiles] = useState<FileItem[]>(filesByClient[client.id] ?? defaultFiles);
+  const seedFiles = filesByClient[client.id] ?? defaultFiles;
+  const [files, setFiles] = usePersistedState<FileItem[]>(`files:${client.id}`, seedFiles);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<FileCategory | "All">("All");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");

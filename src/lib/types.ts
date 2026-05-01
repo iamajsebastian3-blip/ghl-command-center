@@ -27,6 +27,27 @@ export interface Task {
   priority: TaskPriority;
 }
 
+export type CommentAuthor = "you" | "client";
+
+export interface CommentAttachment {
+  id: string;
+  type: "url" | "image";
+  url: string;       // external URL or data URL (base64 image)
+  label?: string;
+  filename?: string; // for uploaded images
+  size?: number;     // bytes (uploaded images)
+  mimeType?: string;
+}
+
+export interface TaskComment {
+  id: string;
+  taskId: string;
+  author: CommentAuthor;
+  body: string;
+  createdAt: number; // epoch ms
+  attachments: CommentAttachment[];
+}
+
 export interface DailyLog {
   id: string;
   date: string;
