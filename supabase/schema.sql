@@ -63,18 +63,68 @@ create table if not exists public.comment_attachments (
 create index if not exists comment_attachments_comment_id_idx on public.comment_attachments(comment_id);
 
 -- One daily log per client (current state). Edited in place.
+-- Each list column stores a tree of {id, title, children} nodes (unlimited nesting).
 create table if not exists public.daily_logs (
   client_id         uuid primary key references public.clients(id) on delete cascade,
   log_date          date not null default current_date,
   time_in           text default '',
   time_out          text default '',
-  tasks_completed   text[] not null default '{}',
-  pending_tasks     text[] not null default '{}',
-  priorities        text[] not null default '{}',
-  blockers          text[] not null default '{}',
-  next_day_plan     text[] not null default '{}',
+  tasks_completed   jsonb not null default '[]'::jsonb,
+  pending_tasks     jsonb not null default '[]'::jsonb,
+  priorities        jsonb not null default '[]'::jsonb,
+  blockers          jsonb not null default '[]'::jsonb,
+  next_day_plan     jsonb not null default '[]'::jsonb,
   updated_at        timestamptz not null default now()
 );
+
+-- Migration: if daily_logs columns are still the old text[] (from earlier schema),
+-- convert each value to a single-node jsonb tree so existing entries survive.
+do $migrate_daily_logs$
+declare
+  needs_migration boolean;
+begin
+  select data_type = 'ARRAY' into needs_migration
+  from information_schema.columns
+  where table_schema = 'public'
+    and table_name   = 'daily_logs'
+    and column_name  = 'tasks_completed';
+
+  if coalesce(needs_migration, false) then
+    create or replace function _tmp_text_array_to_node_tree(arr text[])
+    returns jsonb language sql immutable as $func$
+      select coalesce(
+        jsonb_agg(jsonb_build_object(
+          'id', gen_random_uuid()::text,
+          'title', val,
+          'children', '[]'::jsonb
+        )),
+        '[]'::jsonb
+      )
+      from unnest(arr) as val;
+    $func$;
+
+    execute $sql$
+      alter table public.daily_logs
+        alter column tasks_completed drop default,
+        alter column tasks_completed type jsonb using _tmp_text_array_to_node_tree(tasks_completed),
+        alter column tasks_completed set default '[]'::jsonb,
+        alter column pending_tasks drop default,
+        alter column pending_tasks type jsonb using _tmp_text_array_to_node_tree(pending_tasks),
+        alter column pending_tasks set default '[]'::jsonb,
+        alter column priorities drop default,
+        alter column priorities type jsonb using _tmp_text_array_to_node_tree(priorities),
+        alter column priorities set default '[]'::jsonb,
+        alter column blockers drop default,
+        alter column blockers type jsonb using _tmp_text_array_to_node_tree(blockers),
+        alter column blockers set default '[]'::jsonb,
+        alter column next_day_plan drop default,
+        alter column next_day_plan type jsonb using _tmp_text_array_to_node_tree(next_day_plan),
+        alter column next_day_plan set default '[]'::jsonb
+    $sql$;
+
+    drop function _tmp_text_array_to_node_tree(text[]);
+  end if;
+end$migrate_daily_logs$;
 
 create table if not exists public.time_sessions (
   id            uuid primary key default gen_random_uuid(),

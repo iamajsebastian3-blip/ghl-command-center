@@ -90,16 +90,21 @@ export type CommentAttachmentInsert = {
   mime_type?: string | null;
 };
 
+export interface DailyLogNodeRow {
+  id: string;
+  title: string;
+  children: DailyLogNodeRow[];
+}
 export interface DailyLogRow {
   client_id: string;
   log_date: string;
   time_in: string | null;
   time_out: string | null;
-  tasks_completed: string[];
-  pending_tasks: string[];
-  priorities: string[];
-  blockers: string[];
-  next_day_plan: string[];
+  tasks_completed: DailyLogNodeRow[];
+  pending_tasks: DailyLogNodeRow[];
+  priorities: DailyLogNodeRow[];
+  blockers: DailyLogNodeRow[];
+  next_day_plan: DailyLogNodeRow[];
   updated_at: string;
 }
 export type DailyLogUpsert = {
@@ -107,11 +112,11 @@ export type DailyLogUpsert = {
   log_date?: string;
   time_in?: string | null;
   time_out?: string | null;
-  tasks_completed?: string[];
-  pending_tasks?: string[];
-  priorities?: string[];
-  blockers?: string[];
-  next_day_plan?: string[];
+  tasks_completed?: DailyLogNodeRow[];
+  pending_tasks?: DailyLogNodeRow[];
+  priorities?: DailyLogNodeRow[];
+  blockers?: DailyLogNodeRow[];
+  next_day_plan?: DailyLogNodeRow[];
 };
 
 export interface TimeSessionRow {

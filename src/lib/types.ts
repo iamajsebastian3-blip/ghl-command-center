@@ -48,16 +48,22 @@ export interface TaskComment {
   attachments: CommentAttachment[];
 }
 
+export interface DailyLogNode {
+  id: string;
+  title: string;
+  children: DailyLogNode[];
+}
+
 export interface DailyLog {
   id: string;
   date: string;
   timeIn: string;
   timeOut: string;
-  tasksCompleted: string[];
-  pendingTasks: string[];
-  priorities: string[];
-  blockers: string[];
-  nextDayPlan: string[];
+  tasksCompleted: DailyLogNode[];
+  pendingTasks: DailyLogNode[];
+  priorities: DailyLogNode[];
+  blockers: DailyLogNode[];
+  nextDayPlan: DailyLogNode[];
 }
 
 export type ViewType = "dashboard" | "daily-ops" | "tasks" | "files";

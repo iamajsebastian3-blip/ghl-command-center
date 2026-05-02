@@ -2,8 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/browser";
-import type { DailyLogRow } from "@/lib/supabase/types";
-import type { DailyLog } from "@/lib/types";
+import type { DailyLogRow, DailyLogNodeRow } from "@/lib/supabase/types";
+import type { DailyLog, DailyLogNode } from "@/lib/types";
+
+function nodesFromRow(raw: unknown): DailyLogNode[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((n) => {
+    const node = n as Partial<DailyLogNodeRow>;
+    return {
+      id: typeof node.id === "string" ? node.id : crypto.randomUUID(),
+      title: typeof node.title === "string" ? node.title : "",
+      children: nodesFromRow(node.children),
+    };
+  });
+}
 
 function rowToLog(r: DailyLogRow | null, clientId: string): DailyLog {
   if (!r) {
@@ -24,11 +36,11 @@ function rowToLog(r: DailyLogRow | null, clientId: string): DailyLog {
     date: r.log_date,
     timeIn: r.time_in ?? "",
     timeOut: r.time_out ?? "",
-    tasksCompleted: r.tasks_completed ?? [],
-    pendingTasks: r.pending_tasks ?? [],
-    priorities: r.priorities ?? [],
-    blockers: r.blockers ?? [],
-    nextDayPlan: r.next_day_plan ?? [],
+    tasksCompleted: nodesFromRow(r.tasks_completed),
+    pendingTasks: nodesFromRow(r.pending_tasks),
+    priorities: nodesFromRow(r.priorities),
+    blockers: nodesFromRow(r.blockers),
+    nextDayPlan: nodesFromRow(r.next_day_plan),
   };
 }
 

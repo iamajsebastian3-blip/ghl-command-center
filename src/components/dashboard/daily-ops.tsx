@@ -18,8 +18,9 @@ import {
   LogIn,
   LogOut,
   Printer,
+  ChevronRight,
 } from "lucide-react";
-import type { Client, DailyLog } from "@/lib/types";
+import type { Client, DailyLog, DailyLogNode } from "@/lib/types";
 import { useDailyLog } from "@/lib/hooks/use-daily-log";
 import { useTimeSessions } from "@/lib/hooks/use-time-sessions";
 import { upsertDailyLogAction } from "@/app/actions/daily-log";
@@ -28,6 +29,7 @@ import { createTimeSessionAction, deleteTimeSessionAction } from "@/app/actions/
 interface Props { client: Client; clientMode?: boolean }
 
 type TimerState = "idle" | "running" | "paused" | "stopped";
+type LogField = "tasksCompleted" | "pendingTasks" | "priorities" | "blockers" | "nextDayPlan";
 
 function formatTime(totalSeconds: number) {
   const hrs = Math.floor(totalSeconds / 3600);
@@ -60,6 +62,194 @@ const EMPTY_LOG = (clientId: string): DailyLog => ({
   nextDayPlan: [],
 });
 
+// Tree mutation helpers — return a new tree (immutable).
+function makeNode(title: string): DailyLogNode {
+  return { id: crypto.randomUUID(), title, children: [] };
+}
+
+function addNode(tree: DailyLogNode[], parentId: string | null, title: string): DailyLogNode[] {
+  const node = makeNode(title);
+  if (parentId === null) return [...tree, node];
+  return tree.map((n) => {
+    if (n.id === parentId) return { ...n, children: [...n.children, node] };
+    return { ...n, children: addNode(n.children, parentId, title) };
+  });
+}
+
+function removeNode(tree: DailyLogNode[], id: string): DailyLogNode[] {
+  return tree
+    .filter((n) => n.id !== id)
+    .map((n) => ({ ...n, children: removeNode(n.children, id) }));
+}
+
+function renameNode(tree: DailyLogNode[], id: string, title: string): DailyLogNode[] {
+  return tree.map((n) => {
+    if (n.id === id) return { ...n, title };
+    return { ...n, children: renameNode(n.children, id, title) };
+  });
+}
+
+// Recursive node renderer.
+function NodeRow({
+  node,
+  depth,
+  expanded,
+  onToggle,
+  addingChildOf,
+  setAddingChildOf,
+  onAddChild,
+  onRemove,
+  onRename,
+  dotColor,
+  clientMode,
+}: {
+  node: DailyLogNode;
+  depth: number;
+  expanded: Set<string>;
+  onToggle: (id: string) => void;
+  addingChildOf: string | null;
+  setAddingChildOf: (id: string | null) => void;
+  onAddChild: (parentId: string, title: string) => void;
+  onRemove: (id: string) => void;
+  onRename: (id: string, title: string) => void;
+  dotColor: string;
+  clientMode: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(node.title);
+  const [childInput, setChildInput] = useState("");
+  const childInputRef = useRef<HTMLInputElement>(null);
+  const isOpen = expanded.has(node.id);
+  const hasChildren = node.children.length > 0;
+  const isAddingHere = addingChildOf === node.id;
+
+  useEffect(() => {
+    if (isAddingHere && childInputRef.current) childInputRef.current.focus();
+  }, [isAddingHere]);
+
+  const commitRename = () => {
+    const next = editValue.trim();
+    if (!next) { setEditValue(node.title); setEditing(false); return; }
+    if (next !== node.title) onRename(node.id, next);
+    setEditing(false);
+  };
+
+  const submitChild = () => {
+    const v = childInput.trim();
+    if (!v) return;
+    onAddChild(node.id, v);
+    setChildInput("");
+    // keep adding mode open for rapid entry
+    if (childInputRef.current) childInputRef.current.focus();
+  };
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-2 py-2 px-2.5 rounded-lg bg-bg-surface group hover:bg-bg-elevated transition-colors"
+        style={{ marginLeft: depth * 20 }}
+      >
+        <button
+          onClick={() => onToggle(node.id)}
+          className="shrink-0 text-text-muted hover:text-text-secondary cursor-pointer p-0.5"
+          aria-label={isOpen ? "Collapse" : "Expand"}
+        >
+          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${isOpen ? "rotate-90" : ""} ${hasChildren || isAddingHere ? "" : "opacity-30"}`} />
+        </button>
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
+        {editing ? (
+          <input
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+              if (e.key === "Escape") { setEditValue(node.title); setEditing(false); }
+            }}
+            autoFocus
+            className="flex-1 bg-bg-card border border-purple/30 rounded px-2 py-1 text-sm text-text-primary focus:outline-none focus:border-purple/60"
+          />
+        ) : (
+          <span
+            className={`text-sm flex-1 ${clientMode ? "" : "cursor-text"} text-text-primary`}
+            onClick={() => { if (!clientMode) { setEditing(true); setEditValue(node.title); } }}
+          >
+            {node.title}
+          </span>
+        )}
+        {!clientMode && (
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={() => {
+                if (!isOpen) onToggle(node.id);
+                setAddingChildOf(node.id);
+              }}
+              className="p-1 text-text-muted hover:text-purple cursor-pointer"
+              title="Add sub-item"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onRemove(node.id)}
+              className="p-1 text-text-muted hover:text-yellow cursor-pointer"
+              title="Delete"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {isOpen && (
+        <div className="mt-1 space-y-1">
+          {node.children.map((child) => (
+            <NodeRow
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              expanded={expanded}
+              onToggle={onToggle}
+              addingChildOf={addingChildOf}
+              setAddingChildOf={setAddingChildOf}
+              onAddChild={onAddChild}
+              onRemove={onRemove}
+              onRename={onRename}
+              dotColor={dotColor}
+              clientMode={clientMode}
+            />
+          ))}
+          {isAddingHere && !clientMode && (
+            <div className="flex gap-2" style={{ marginLeft: (depth + 1) * 20 }}>
+              <input
+                ref={childInputRef}
+                value={childInput}
+                onChange={(e) => setChildInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); submitChild(); }
+                  if (e.key === "Escape") { setChildInput(""); setAddingChildOf(null); }
+                }}
+                onBlur={() => {
+                  if (!childInput.trim()) setAddingChildOf(null);
+                }}
+                placeholder="+ Add sub-item... (Enter to add, Esc to close)"
+                className="flex-1 bg-bg-surface border border-border-subtle rounded-lg px-3 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-purple/40"
+              />
+              {childInput.trim() && (
+                <button
+                  onMouseDown={(e) => { e.preventDefault(); submitChild(); }}
+                  className="px-3 py-1.5 rounded-lg bg-purple text-white text-xs font-medium hover:bg-purple-light transition-colors cursor-pointer"
+                >
+                  Add
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DailyOps({ client, clientMode = false }: Props) {
   const { log: serverLog } = useDailyLog(client.id);
   const { sessions } = useTimeSessions(client.id);
@@ -67,7 +257,18 @@ export default function DailyOps({ client, clientMode = false }: Props) {
   const log: DailyLog = serverLog ?? EMPTY_LOG(client.id);
   const [actionError, setActionError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
-  const [newItem, setNewItem] = useState({ field: "", value: "" });
+  const [newTopLevel, setNewTopLevel] = useState<{ field: LogField | ""; value: string }>({ field: "", value: "" });
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [addingChildOf, setAddingChildOf] = useState<string | null>(null);
+
+  const toggleExpand = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // Timer state — local only
   const [timerState, setTimerState] = useState<TimerState>("idle");
@@ -132,7 +333,6 @@ export default function DailyOps({ client, clientMode = false }: Props) {
         seconds,
       });
       if (!result.ok) { setActionError(result.error); return; }
-      // Mirror to daily_log time_in/time_out
       upsertDailyLogAction({
         client_id: client.id,
         time_in: timeInStamp,
@@ -195,7 +395,6 @@ export default function DailyOps({ client, clientMode = false }: Props) {
     return () => stopInterval();
   }, [stopInterval]);
 
-  // Grouping: sessions by date (descending), with daily totals.
   const grouped = useMemo(() => {
     const sorted = [...sessions].sort((a, b) => b.startEpoch - a.startEpoch);
     const map = new Map<string, { sessions: typeof sessions; total: number }>();
@@ -219,7 +418,6 @@ export default function DailyOps({ client, clientMode = false }: Props) {
 
   const visibleGroups = showAllHistory ? grouped : grouped.slice(0, 5);
 
-  type LogField = "tasksCompleted" | "pendingTasks" | "priorities" | "blockers" | "nextDayPlan";
   const fieldToCol: Record<LogField, "tasks_completed" | "pending_tasks" | "priorities" | "blockers" | "next_day_plan"> = {
     tasksCompleted: "tasks_completed",
     pendingTasks: "pending_tasks",
@@ -228,7 +426,7 @@ export default function DailyOps({ client, clientMode = false }: Props) {
     nextDayPlan: "next_day_plan",
   };
 
-  const persistLogList = (field: LogField, next: string[]) => {
+  const persistTree = (field: LogField, next: DailyLogNode[]) => {
     setActionError(null);
     startTransition(async () => {
       const result = await upsertDailyLogAction({
@@ -239,19 +437,35 @@ export default function DailyOps({ client, clientMode = false }: Props) {
     });
   };
 
-  const addItem = (field: LogField) => {
+  const addTopLevel = (field: LogField) => {
     if (clientMode) return;
-    if (!newItem.value.trim() || newItem.field !== field) return;
-    const next = [...log[field], newItem.value.trim()];
-    persistLogList(field, next);
-    setNewItem({ field: "", value: "" });
+    if (!newTopLevel.value.trim() || newTopLevel.field !== field) return;
+    const next = addNode(log[field], null, newTopLevel.value.trim());
+    persistTree(field, next);
+    setNewTopLevel({ field: "", value: "" });
   };
 
-  const removeItem = (field: LogField, index: number) => {
+  const addChild = (field: LogField) => (parentId: string, title: string) => {
     if (clientMode) return;
-    const next = log[field].filter((_, i) => i !== index);
-    persistLogList(field, next);
+    const next = addNode(log[field], parentId, title);
+    persistTree(field, next);
   };
+
+  const removeAt = (field: LogField) => (id: string) => {
+    if (clientMode) return;
+    const next = removeNode(log[field], id);
+    persistTree(field, next);
+  };
+
+  const renameAt = (field: LogField) => (id: string, title: string) => {
+    if (clientMode) return;
+    const next = renameNode(log[field], id, title);
+    persistTree(field, next);
+  };
+
+  // Count all nodes (recursively) for the section badge
+  const countNodes = (nodes: DailyLogNode[]): number =>
+    nodes.reduce((n, x) => n + 1 + countNodes(x.children), 0);
 
   const sections: {
     key: LogField;
@@ -268,7 +482,7 @@ export default function DailyOps({ client, clientMode = false }: Props) {
     { key: "nextDayPlan", label: "Next Day Plan", icon: BookOpen, color: "text-purple-light", dotColor: "bg-purple-light", emptyText: "Plan not set yet" },
   ];
 
-  // Total seconds across all logged history (for the printable timesheet footer)
+  // Total seconds across all logged history
   const totalAllSeconds = sessions.reduce((sum, s) => sum + s.seconds, 0);
   const generatedAt = new Date().toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
   const periodStart = grouped.length > 0 ? grouped[grouped.length - 1].date : null;
@@ -533,49 +747,63 @@ export default function DailyOps({ client, clientMode = false }: Props) {
         )}
       </div>
 
-      {/* Sections */}
+      {/* Sections — nested trees */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {sections.map((section, sIdx) => (
-          <div key={section.key} className={`card p-5 animate-in opacity-0 animate-delay-${Math.min(sIdx + 3, 6)} ${section.key === "nextDayPlan" ? "lg:col-span-2" : ""}`}>
-            <div className="flex items-center gap-2 mb-4">
-              <section.icon className={`w-4 h-4 ${section.color}`} />
-              <h2 className="text-sm font-semibold text-text-primary">{section.label}</h2>
-              <span className="ml-auto badge bg-bg-surface text-text-muted">{log[section.key].length}</span>
-            </div>
+        {sections.map((section, sIdx) => {
+          const tree = log[section.key];
+          const totalCount = countNodes(tree);
+          return (
+            <div key={section.key} className={`card p-5 animate-in opacity-0 animate-delay-${Math.min(sIdx + 3, 6)} ${section.key === "nextDayPlan" ? "lg:col-span-2" : ""}`}>
+              <div className="flex items-center gap-2 mb-4">
+                <section.icon className={`w-4 h-4 ${section.color}`} />
+                <h2 className="text-sm font-semibold text-text-primary">{section.label}</h2>
+                <span className="ml-auto badge bg-bg-surface text-text-muted">{totalCount}</span>
+              </div>
 
-            <div className="space-y-1 mb-3">
-              {log[section.key].length === 0 ? (
-                <p className="text-xs text-text-muted italic py-2">{section.emptyText}</p>
-              ) : (
-                log[section.key].map((item, idx) => (
-                  <div key={idx} className="flex items-center gap-3 py-2.5 px-3 rounded-lg bg-bg-surface group hover:bg-bg-elevated transition-colors">
-                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${section.dotColor}`} />
-                    <span className="text-sm text-text-primary flex-1">{item}</span>
-                    {!clientMode && (
-                      <button onClick={() => removeItem(section.key, idx)} className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-yellow transition-all cursor-pointer">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                ))
+              <div className="space-y-1 mb-3">
+                {tree.length === 0 ? (
+                  <p className="text-xs text-text-muted italic py-2">{section.emptyText}</p>
+                ) : (
+                  tree.map((node) => (
+                    <NodeRow
+                      key={node.id}
+                      node={node}
+                      depth={0}
+                      expanded={expanded}
+                      onToggle={toggleExpand}
+                      addingChildOf={addingChildOf}
+                      setAddingChildOf={setAddingChildOf}
+                      onAddChild={addChild(section.key)}
+                      onRemove={removeAt(section.key)}
+                      onRename={renameAt(section.key)}
+                      dotColor={section.dotColor}
+                      clientMode={clientMode}
+                    />
+                  ))
+                )}
+              </div>
+
+              {!clientMode && (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newTopLevel.field === section.key ? newTopLevel.value : ""}
+                    onFocus={() => setNewTopLevel((prev) => ({ ...prev, field: section.key }))}
+                    onChange={(e) => setNewTopLevel({ field: section.key, value: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); addTopLevel(section.key); }
+                    }}
+                    placeholder={`+ Add ${section.label.toLowerCase()}...`}
+                    className="flex-1 bg-bg-surface border border-border-subtle rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-purple/40"
+                  />
+                  {newTopLevel.field === section.key && newTopLevel.value.trim() && (
+                    <button onClick={() => addTopLevel(section.key)} className="px-3 py-2 rounded-lg bg-purple text-white text-sm font-medium hover:bg-purple-light transition-colors cursor-pointer">Add</button>
+                  )}
+                </div>
               )}
             </div>
-
-            {!clientMode && (
-            <div className="flex gap-2">
-              <input type="text" value={newItem.field === section.key ? newItem.value : ""}
-                onFocus={() => setNewItem((prev) => ({ ...prev, field: section.key }))}
-                onChange={(e) => setNewItem({ field: section.key, value: e.target.value })}
-                onKeyDown={(e) => e.key === "Enter" && addItem(section.key)}
-                placeholder={`+ Add ${section.label.toLowerCase()}...`}
-                className="flex-1 bg-bg-surface border border-border-subtle rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-purple/40" />
-              {newItem.field === section.key && newItem.value.trim() && (
-                <button onClick={() => addItem(section.key)} className="px-3 py-2 rounded-lg bg-purple text-white text-sm font-medium hover:bg-purple-light transition-colors cursor-pointer">Add</button>
-              )}
-            </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
     </>
